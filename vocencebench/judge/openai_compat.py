@@ -50,9 +50,18 @@ class OpenAICompatBackend:
             return r.json()["choices"][0]["message"]["content"]
 
     def compare(self, parts: PromptParts, audio_a: bytes, audio_b: bytes,
-                *, temperature: float) -> Dict[str, Any]:
-        content = self.raw(parts, audio_a, audio_b, temperature=temperature)
-        obj = extract_json(content) or salvage_verdict(content)
+                *, temperature: float, retries: int = 2) -> Dict[str, Any]:
+        content = ""
+        for attempt in range(retries + 1):
+            # bump temperature slightly on retry to escape a bad decode
+            t = temperature if attempt == 0 else max(temperature, 0.4)
+            content = self.raw(parts, audio_a, audio_b, temperature=t)
+            obj = extract_json(content)
+            if obj is not None:
+                out = parse_verdict(obj)
+                out["raw"] = content
+                return out
+        obj = salvage_verdict(content)   # last resort: keep the winner/scores
         if obj is None:
             raise ValueError(f"judge returned no parseable JSON: {content[:200]!r}")
         out = parse_verdict(obj)

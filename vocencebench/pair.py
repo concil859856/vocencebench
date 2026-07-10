@@ -37,6 +37,10 @@ class TraitEval:
 class PairResult:
     traits: Dict[str, TraitEval] = field(default_factory=dict)
     naturalness: Optional[Verdict] = None
+    gate_a: int = 1                 # intelligibility gate (1 pass / 0 fail)
+    gate_b: int = 1
+    wer_a: Optional[float] = None
+    wer_b: Optional[float] = None
 
     def adherence(self) -> Dict[str, float]:
         """Mean absolute adherence per clip over all traits (both can be high)."""
@@ -65,6 +69,8 @@ def evaluate_pair(
     swap_eval: bool = False,
     all_at_once: bool = False,
     naturalness: bool = True,
+    transcriber=None,
+    wer_tau: float = 0.15,
 ) -> PairResult:
     """Compare two clips on every requested trait + naturalness.
 
@@ -85,6 +91,15 @@ def evaluate_pair(
     sample = Sample(id="pair", text=text, instruction=instruction, traits=traits, category=category)
 
     result = PairResult()
+
+    # Intelligibility gate: transcribe each clip, compute WER vs the text; fail the gate
+    # (gate=0 -> composite 0) when the words can't be understood.
+    if transcriber is not None:
+        result.wer_a = _wer(transcriber(wav_a), text)
+        result.wer_b = _wer(transcriber(wav_b), text)
+        result.gate_a = 1 if result.wer_a <= wer_tau else 0
+        result.gate_b = 1 if result.wer_b <= wer_tau else 0
+
     judged: List[str] = []
     for t, val in traits.items():
         probe = probe_map.get(t)
@@ -170,3 +185,19 @@ def _judge_all(result, judge, text, instruction, jtraits, wav_a, wav_b, category
 def _avg(x, y):
     xs = [v for v in (x, y) if v is not None]
     return int(round(sum(xs) / len(xs))) if xs else None
+
+
+def _wer(hyp: str, ref: str) -> float:
+    """Word error rate of a transcript vs the reference text (normalised)."""
+    import re
+    norm = lambda s: re.sub(r"[^a-z0-9 ]", "", s.lower()).split()
+    r, h = norm(ref), norm(hyp)
+    if not r:
+        return 0.0
+    prev = list(range(len(h) + 1))
+    for i, x in enumerate(r, 1):
+        cur = [i]
+        for j, y in enumerate(h, 1):
+            cur.append(min(prev[j] + 1, cur[-1] + 1, prev[j - 1] + (x != y)))
+        prev = cur
+    return round(prev[-1] / len(r), 4)

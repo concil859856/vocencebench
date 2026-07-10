@@ -72,10 +72,12 @@ def compare_models(
     score_naturalness: bool = True,
     all_at_once: bool = False,
     swap_eval: bool = False,
+    transcriber=None,
+    wer_tau: float = 0.15,
     on_audio: Optional[Callable[[str, bytes, bytes], None]] = None,
 ) -> Head2Head:
     """Compare two models symmetrically. ``all_at_once`` and ``swap_eval`` are passed to
-    :func:`evaluate_pair` (per-trait focused judging and no order-swap by default)."""
+    :func:`evaluate_pair`; ``transcriber`` (if given) enables the WER intelligibility gate."""
     obj_a: Dict[str, List[float]] = defaultdict(list)
     obj_b: Dict[str, List[float]] = defaultdict(list)
     nat: List[float] = []                 # win value for A (win-rate display)
@@ -90,9 +92,10 @@ def compare_models(
         pr = evaluate_pair(wav_a, wav_b, text=s.text, traits=s.traits, judge=judge,
                            instruction=s.instruction, probes=probes, category=s.category,
                            swap_eval=swap_eval, all_at_once=all_at_once,
-                           naturalness=score_naturalness)
+                           naturalness=score_naturalness, transcriber=transcriber, wer_tau=wer_tau)
         rec = {"id": s.id, "text": s.text, "instruction": s.instruction, "traits": s.traits,
-               "objective": [], "pairwise": []}
+               "objective": [], "pairwise": [],
+               "gate_a": pr.gate_a, "gate_b": pr.gate_b, "wer_a": pr.wer_a, "wer_b": pr.wer_b}
         for t, te in pr.traits.items():
             if te.score_a is not None:
                 obj_a[t].append(te.score_a)
@@ -133,6 +136,8 @@ def benchmark(
     labels: tuple = ("model_a", "model_b"),
     all_at_once: bool = False,
     swap_eval: bool = False,
+    transcriber=None,
+    wer_tau: float = 0.15,
     on_audio: Optional[Callable[[str, bytes, bytes], None]] = None,
     **decide_kw,
 ) -> Head2Head:
@@ -146,7 +151,8 @@ def benchmark(
     Returns the :class:`Head2Head` with ``.decision`` populated.
     """
     h = compare_models(dataset, model_a, model_b, judge, probes=probes, labels=labels,
-                       all_at_once=all_at_once, swap_eval=swap_eval, on_audio=on_audio)
+                       all_at_once=all_at_once, swap_eval=swap_eval, transcriber=transcriber,
+                       wer_tau=wer_tau, on_audio=on_audio)
     h.decide(**decide_kw)
     return h
 

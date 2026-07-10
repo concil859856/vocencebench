@@ -131,9 +131,15 @@ class Judge:
         from vocencebench.prompts import assess_all, parse_multi
         from vocencebench.audio import to_wav_bytes
         parts = assess_all(text, instruction, traits, category)
-        raw = self.backend.raw(parts, to_wav_bytes(audio_a), to_wav_bytes(audio_b),
-                               temperature=self.temperature)
-        obj = extract_json(raw) or {}
+        wa, wb = to_wav_bytes(audio_a), to_wav_bytes(audio_b)
+        obj = {}
+        for attempt in range(3):   # retry on unparseable / missing traits
+            t = self.temperature if attempt == 0 else max(self.temperature, 0.4)
+            raw = self.backend.raw(parts, wa, wb, temperature=t)
+            cand = extract_json(raw)
+            if cand and "traits" in cand:
+                obj = cand
+                break
         parsed = parse_multi(obj, list(traits))
         out = {"traits": {}, "naturalness": None}
         for t, e in parsed["traits"].items():

@@ -72,9 +72,17 @@ class GeminiBackend:
         return resp.text or ""
 
     def compare(self, parts: PromptParts, audio_a: bytes, audio_b: bytes,
-                *, temperature: float) -> Dict[str, Any]:
-        text = self.raw(parts, audio_a, audio_b, temperature=temperature)
-        obj = extract_json(text) or salvage_verdict(text)
+                *, temperature: float, retries: int = 2) -> Dict[str, Any]:
+        text = ""
+        for attempt in range(retries + 1):
+            t = temperature if attempt == 0 else max(temperature, 0.4)
+            text = self.raw(parts, audio_a, audio_b, temperature=t)
+            obj = extract_json(text)
+            if obj is not None:
+                out = parse_verdict(obj)
+                out["raw"] = text
+                return out
+        obj = salvage_verdict(text)
         if obj is None:
             raise ValueError(f"Gemini judge returned no parseable JSON: {text[:200]!r}")
         out = parse_verdict(obj)

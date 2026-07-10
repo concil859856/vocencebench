@@ -22,6 +22,7 @@ from vocencebench.judge import Judge
 from vocencebench.pair import PairResult, TraitEval, evaluate_pair
 from vocencebench.probes import default_probes, with_classifiers
 from vocencebench.runner import evaluate
+from vocencebench.transcribe import whisper_transcriber
 from vocencebench.schema import (
     EvalReport, ProbeResult, Sample, SampleResult, Verdict,
     load_dataset, save_dataset,
@@ -44,6 +45,7 @@ __all__ = [
     "geometric_composite",
     "default_probes",
     "with_classifiers",
+    "whisper_transcriber",
     "build_corpus",
     "build_splits",
     "adapters",

@@ -263,6 +263,18 @@ def test_decide_ties_when_too_few_samples():
     assert vb.decide(h).winner == "tie"
 
 
+def test_intelligibility_gate():
+    from vocencebench.pair import evaluate_pair
+    a, b = _wav(190), _wav(170)
+    tmap = {a: "the old lighthouse stood watch", b: "zzz qqq xxx"}
+    r = evaluate_pair(a, b, text="the old lighthouse stood watch",
+                      traits={"pace": "moderate", "tone": "warm"},
+                      judge=Judge(_MultiStub(), swap=False), probes=default_probes(),
+                      transcriber=lambda w: tmap.get(w, "zzz"), wer_tau=0.15)
+    assert r.gate_a == 1 and r.gate_b == 0      # B is unintelligible -> gate fails
+    assert r.wer_a == 0.0 and r.wer_b == 1.0
+
+
 def test_benchmark_one_call_framework():
     model_a = lambda t, i: _wav(190, 3.0, 0.12)
     model_b = lambda t, i: _wav(170, 3.6, 0.03)
