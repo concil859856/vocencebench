@@ -14,10 +14,31 @@ from vocencebench.prompts import PromptParts, parse_verdict
 
 
 class GeminiBackend:
+    # Gemini 3.1 Pro standard pricing (USD per token).
+    PRICE_IN = 2.0 / 1_000_000
+    PRICE_OUT = 12.0 / 1_000_000
+
     def __init__(self, model: str = "gemini-3.1-pro-preview", api_key: Optional[str] = None):
         self.model = model
         self._api_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         self._client = None
+        # Exact token usage accumulated across calls (input, output incl. thinking).
+        self.usage = {"calls": 0, "input": 0, "output": 0, "total": 0}
+
+    def cost_usd(self) -> float:
+        return round(self.usage["input"] * self.PRICE_IN + self.usage["output"] * self.PRICE_OUT, 6)
+
+    def _track(self, resp) -> None:
+        um = getattr(resp, "usage_metadata", None)
+        if not um:
+            return
+        inp = int(getattr(um, "prompt_token_count", 0) or 0)
+        out = int(getattr(um, "candidates_token_count", 0) or 0)
+        think = int(getattr(um, "thoughts_token_count", 0) or 0)
+        self.usage["calls"] += 1
+        self.usage["input"] += inp
+        self.usage["output"] += out + think
+        self.usage["total"] += int(getattr(um, "total_token_count", 0) or (inp + out + think))
 
     def _get_client(self):
         if self._client is None:
@@ -47,6 +68,7 @@ class GeminiBackend:
             response_mime_type="application/json",
         )
         resp = client.models.generate_content(model=self.model, contents=contents, config=config)
+        self._track(resp)
         return resp.text or ""
 
     def compare(self, parts: PromptParts, audio_a: bytes, audio_b: bytes,
