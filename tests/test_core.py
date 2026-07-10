@@ -110,6 +110,28 @@ def test_bootstrap_ci_bounds():
 
 
 # --------------------------------------------------------------------- end to end
+def test_classifier_probe_label_mapping():
+    from vocencebench.probes.classifier import HFClassifierProbe
+    probe = HFClassifierProbe("gender", "fake/model", {"female": "female", "male": "male"})
+    # Stub out the pipeline: top label maps to 'male'.
+    probe._pipe = lambda audio, top_k=5: [{"label": "MALE", "score": 0.97},
+                                          {"label": "female", "score": 0.03}]
+    s = vb.Sample(id="0", text="hi", traits={"gender": "male"})
+    r = probe.score(s, _wav())
+    assert r.measured == "male" and r.matched is True and r.score == 1.0
+    # Not-requested trait returns None.
+    assert probe.score(vb.Sample(id="1", text="hi", traits={"pace": "fast"}), _wav()) is None
+
+
+def test_classifier_probe_ordinal_partial_credit():
+    from vocencebench.probes.classifier import HFClassifierProbe
+    probe = HFClassifierProbe("pitch", "fake", {"low": "low", "mid": "medium", "high": "high"},
+                              order=("low", "medium", "high"))
+    probe._pipe = lambda audio, top_k=5: [{"label": "mid", "score": 0.8}]
+    r = probe.score(vb.Sample(id="0", text="hi", traits={"pitch": "high"}), _wav())
+    assert r.measured == "medium" and r.score == 0.5  # adjacent bucket
+
+
 def test_evaluate_end_to_end():
     model = lambda t, i: _wav(190, 3.0, 0.12)
     ref = lambda t, i: _wav(170, 3.6, 0.03)
