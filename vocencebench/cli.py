@@ -23,7 +23,7 @@ from vocencebench.probes import default_probes
 
 def _judge(kind: str, model: str, base_url: str, votes: int, swap: bool) -> Judge:
     if kind == "gemini":
-        return Judge.gemini(model=model or "gemini-3.1-pro", votes=votes, swap=swap)
+        return Judge.gemini(model=model or "gemini-3.1-pro-preview", votes=votes, swap=swap)
     if kind == "local":
         if not base_url:
             raise click.ClickException("--base-url is required for --judge local")

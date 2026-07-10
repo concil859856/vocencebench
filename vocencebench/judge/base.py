@@ -97,7 +97,7 @@ class Judge:
         return cls(OpenAICompatBackend(base_url=base_url, model=model, api_key=api_key), **kw)
 
     @classmethod
-    def gemini(cls, model: str = "gemini-3.1-pro", api_key: Optional[str] = None, **kw) -> "Judge":
+    def gemini(cls, model: str = "gemini-3.1-pro-preview", api_key: Optional[str] = None, **kw) -> "Judge":
         """Judge backed by a hosted Gemini model with native audio input."""
         from vocencebench.judge.gemini import GeminiBackend
         return cls(GeminiBackend(model=model, api_key=api_key), **kw)

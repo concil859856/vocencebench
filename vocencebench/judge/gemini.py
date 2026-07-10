@@ -14,7 +14,7 @@ from vocencebench.prompts import PromptParts, parse_verdict
 
 
 class GeminiBackend:
-    def __init__(self, model: str = "gemini-3.1-pro", api_key: Optional[str] = None):
+    def __init__(self, model: str = "gemini-3.1-pro-preview", api_key: Optional[str] = None):
         self.model = model
         self._api_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         self._client = None
