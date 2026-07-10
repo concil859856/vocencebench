@@ -15,7 +15,7 @@ Typical use::
 """
 
 from vocencebench import adapters, calibration, corpus, traits
-from vocencebench.compare import Head2Head, compare_models
+from vocencebench.compare import Head2Head, benchmark, compare_models
 from vocencebench.corpus import build_corpus, build_splits
 from vocencebench.decide import Decision, decide, dynamic_margin, geometric_composite
 from vocencebench.judge import Judge
@@ -36,6 +36,7 @@ __all__ = [
     "PairResult",
     "TraitEval",
     "compare_models",
+    "benchmark",
     "Head2Head",
     "decide",
     "Decision",

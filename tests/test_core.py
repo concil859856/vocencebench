@@ -243,6 +243,21 @@ def test_decide_ties_when_too_few_samples():
     assert vb.decide(h).winner == "tie"
 
 
+def test_benchmark_one_call_framework():
+    model_a = lambda t, i: _wav(190, 3.0, 0.12)
+    model_b = lambda t, i: _wav(170, 3.6, 0.03)
+    data = [vb.Sample(id=str(i), text="the old lighthouse stood watch",
+                      instruction="a warm voice", traits={"pace": "moderate", "tone": "warm"})
+            for i in range(6)]
+    h = vb.benchmark(data, model_a, model_b, Judge(_MultiStub(), swap=False),
+                     probes=default_probes(), labels=("A", "B"))
+    assert h.n == 6
+    assert h.decision is not None
+    assert h.decision.winner in ("A", "B", "tie")
+    assert set(h.decision.scores) == {"A", "B"}
+    assert "VERDICT" in h.summary()
+
+
 def test_evaluate_end_to_end():
     model = lambda t, i: _wav(190, 3.0, 0.12)
     ref = lambda t, i: _wav(170, 3.6, 0.03)

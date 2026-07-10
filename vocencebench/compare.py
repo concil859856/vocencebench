@@ -29,6 +29,13 @@ class Head2Head:
     naturalness_a: float = 0.5   # absolute mean naturalness quality [0,1] for A
     naturalness_b: float = 0.5   # ... for B (used by decide, comparable to adherence)
     per_sample: List[dict] = field(default_factory=list)
+    decision: object = None      # populated by .decide() / benchmark()
+
+    def decide(self, **kw):
+        """Compute the overall winner (geometric composite -> paired LCB -> margin)."""
+        from vocencebench.decide import decide as _decide
+        self.decision = _decide(self, **kw)
+        return self.decision
 
     def summary(self) -> str:
         oa, ob = _mean(self.objective_a.values()), _mean(self.objective_b.values())
@@ -41,6 +48,8 @@ class Head2Head:
         for t in sorted(set(self.objective_a) | set(self.objective_b)):
             out.append(f"    {t:10s} {self.label_a} {round(self.objective_a.get(t, 0), 2)}"
                        f"  vs  {self.label_b} {round(self.objective_b.get(t, 0), 2)}")
+        if self.decision is not None:
+            out.append(f"  VERDICT: {self.decision.winner}  ({self.decision.reason})")
         return "\n".join(out)
 
     def _who(self, a, b):
@@ -111,6 +120,34 @@ def compare_models(
         h.pairwise_a = {"naturalness": round(sum(nat) / len(nat), 6)}
         h.naturalness_a = round(sum(nat_qa) / len(nat_qa), 6)
         h.naturalness_b = round(sum(nat_qb) / len(nat_qb), 6)
+    return h
+
+
+def benchmark(
+    dataset: Sequence[Sample],
+    model_a: TTS,
+    model_b: TTS,
+    judge: Judge,
+    *,
+    probes: Optional[Sequence] = None,
+    labels: tuple = ("model_a", "model_b"),
+    all_at_once: bool = False,
+    swap_eval: bool = False,
+    on_audio: Optional[Callable[[str, bytes, bytes], None]] = None,
+    **decide_kw,
+) -> Head2Head:
+    """One-call framework: batch every sample pair, score all dimensions, then decide.
+
+    Generates both models' audio for every sample, scores each pair (probes + judge),
+    aggregates, and runs the full decision (geometric-mean composite -> intelligibility
+    gate -> paired bootstrap LCB -> dynamic margin -> winner/tie). Extra keyword args go
+    to :func:`vocencebench.decide` (e.g. ``incumbent=``, ``weights=``, ``c=``, ``floor=``).
+
+    Returns the :class:`Head2Head` with ``.decision`` populated.
+    """
+    h = compare_models(dataset, model_a, model_b, judge, probes=probes, labels=labels,
+                       all_at_once=all_at_once, swap_eval=swap_eval, on_audio=on_audio)
+    h.decide(**decide_kw)
     return h
 
 
