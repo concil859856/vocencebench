@@ -90,9 +90,10 @@ def GenderProbe(model_id: str = "alefiury/wav2vec2-large-xlsr-53-gender-recognit
 
 def EmotionProbe(model_id: str = "ehcalabres/wav2vec2-lg-xlsr-en-speech-emotion-recognition",
                  **kw) -> HFClassifierProbe:
+    # RAVDESS 8-class labels map straight through.
     return HFClassifierProbe("emotion", model_id, {
-        "neutral": "neutral", "calm": "neutral", "happy": "happy", "sad": "sad",
-        "angry": "angry", "fear": "fearful", "surprise": "surprised",
+        "neutral": "neutral", "calm": "calm", "happy": "happy", "sad": "sad",
+        "angry": "angry", "fear": "fearful", "disgust": "disgust", "surprise": "surprised",
     }, **kw)
 
 
@@ -100,12 +101,14 @@ def AccentProbe(model_id: str = "dima806/english_accents_classification", **kw) 
     return HFClassifierProbe("accent", model_id, {
         "us": "American", "america": "American", "england": "British", "british": "British",
         "australia": "Australian", "indian": "Indian", "india": "Indian",
+        "canada": "Canadian", "canadian": "Canadian",
     }, **kw)
 
 
 def with_classifiers(base: Optional[List] = None, *, gender: bool = True,
-                     emotion: bool = True, accent: bool = False, device: Optional[int] = None) -> List:
-    """Append classifier probes to (a copy of) ``base`` (defaults to the acoustic set)."""
+                     emotion: bool = True, accent: bool = True, age: bool = True,
+                     device: Optional[int] = None) -> List:
+    """Append classifier + age probes to (a copy of) ``base`` (defaults to the acoustic set)."""
     from vocencebench.probes import default_probes
     probes = list(base) if base is not None else default_probes()
     if gender:
@@ -114,4 +117,7 @@ def with_classifiers(base: Optional[List] = None, *, gender: bool = True,
         probes.append(EmotionProbe(device=device))
     if accent:
         probes.append(AccentProbe(device=device))
+    if age:
+        from vocencebench.probes.age import AgeProbe
+        probes.append(AgeProbe(device=device))
     return probes

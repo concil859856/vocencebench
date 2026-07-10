@@ -24,7 +24,7 @@ def default_probes() -> List[Probe]:
 
 
 def with_classifiers(*args, **kwargs) -> List[Probe]:
-    """Acoustic probes plus classifier probes (gender/emotion/accent). Lazy import so
-    the base package stays dependency-light."""
+    """Acoustic probes plus classifier + age probes (gender/emotion/accent/age). Lazy
+    import so the base package stays dependency-light."""
     from vocencebench.probes.classifier import with_classifiers as _wc
     return _wc(*args, **kwargs)

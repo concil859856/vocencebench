@@ -89,6 +89,26 @@ def test_probes_score_requested_traits():
     assert out["pace"].detail["words_per_sec"] > 0
 
 
+def test_age_probe_tolerance_scoring():
+    from vocencebench.probes.age import AgeProbe
+    p = AgeProbe(tolerance=8.0)
+    p._predict_age_years = lambda audio: 50.0   # stub the model
+    r = p.score(vb.Sample(id="x", text="hi", traits={"age": "45"}), b"fake")
+    assert r.score == 1.0 and r.matched                  # within +/-8
+    p._predict_age_years = lambda audio: 61.0
+    r = p.score(vb.Sample(id="x", text="hi", traits={"age": "45"}), b"fake")
+    assert r.score == 0.0                                 # 16 yrs off = 2x tolerance -> 0
+
+
+def test_trait_vocabulary_counts():
+    from vocencebench import traits
+    assert len(traits.get("emotion").values) == 8
+    assert len(traits.get("accent").values) == 5
+    assert len(traits.get("tone").values) == 8
+    assert traits.get("age").numeric and traits.get("age").tolerance == 8.0
+    assert "environment" not in traits.names()
+
+
 def test_probe_returns_none_when_trait_absent():
     from vocencebench.probes.acoustic import PitchProbe
     s = vb.Sample(id="0", text="hello", traits={"gender": "male"})

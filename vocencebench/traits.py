@@ -25,9 +25,13 @@ class Trait:
     values: Tuple[str, ...] = ()
     # What a judge is told to listen for when comparing two clips on this trait.
     dimension: str = ""
-    # True for values that lie on an ordered scale (age, pace, pitch, loudness), so a
+    # True for values that lie on an ordered scale (pace, pitch, loudness), so a
     # near-miss (adjacent bucket) can be scored more leniently than a far miss.
     ordinal: bool = False
+    # True for a continuous numeric attribute (age in years): `values` are reference
+    # points and `tolerance` is the ± band around the requested value that scores 1.0.
+    numeric: bool = False
+    tolerance: float = 0.0
 
     def is_probeable(self) -> bool:
         return self.kind in ("objective", "hybrid")
@@ -49,9 +53,9 @@ register(Trait(
     dimension="whether the speaker's voice matches the requested gender",
 ))
 register(Trait(
-    name="age", kind="objective", ordinal=True,
-    values=("child", "young adult", "middle-aged adult", "elderly person"),
-    dimension="whether the speaker's apparent age matches the requested age group",
+    name="age", kind="objective", numeric=True, tolerance=8.0,
+    values=("8", "13", "20", "30", "45", "60", "78"),   # years; scored within +/- tolerance
+    dimension="whether the speaker's apparent age in years matches the requested age",
 ))
 register(Trait(
     name="pace", kind="objective", ordinal=True,
@@ -70,23 +74,19 @@ register(Trait(
 ))
 register(Trait(
     name="emotion", kind="objective",
-    values=("neutral", "happy", "sad", "angry", "fearful", "surprised"),
+    values=("neutral", "calm", "happy", "sad", "angry", "fearful", "disgust", "surprised"),
     dimension="whether the expressed emotion matches the requested emotion",
 ))
 register(Trait(
     name="accent", kind="objective",
-    values=("American", "British", "Australian", "Indian"),
+    values=("American", "British", "Australian", "Indian", "Canadian"),
     dimension="whether the accent matches the requested accent",
 ))
 register(Trait(
     name="tone", kind="holistic",
-    values=("warm", "authoritative", "playful", "serious", "soothing"),
+    values=("warm", "authoritative", "playful", "serious", "soothing",
+            "cheerful", "sarcastic", "formal"),
     dimension="whether the overall tone / delivery style matches the requested tone",
-))
-register(Trait(
-    name="environment", kind="hybrid",
-    values=("a quiet studio", "a busy street", "a large hall", "over a phone line"),
-    dimension="whether the recording environment / acoustic setting matches the request",
 ))
 
 
