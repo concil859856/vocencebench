@@ -15,6 +15,7 @@ Typical use::
 """
 
 from vocencebench import adapters, calibration, corpus, traits
+from vocencebench.compare import Head2Head, compare_models
 from vocencebench.corpus import build_corpus, build_splits
 from vocencebench.judge import Judge
 from vocencebench.probes import default_probes, with_classifiers
@@ -29,6 +30,8 @@ __version__ = "0.1.0"
 __all__ = [
     "Judge",
     "evaluate",
+    "compare_models",
+    "Head2Head",
     "default_probes",
     "with_classifiers",
     "build_corpus",
