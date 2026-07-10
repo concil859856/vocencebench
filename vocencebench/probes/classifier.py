@@ -60,7 +60,11 @@ class HFClassifierProbe:
             return None
         import librosa
         y, _ = librosa.load(io.BytesIO(audio), sr=16000, mono=True)
-        preds = self._ensure()({"array": y, "sampling_rate": 16000}, top_k=self.top_k)
+        try:
+            preds = self._ensure()({"array": y, "sampling_rate": 16000}, top_k=self.top_k)
+        except Exception as exc:  # a missing/incompatible model must not abort the sample
+            return ProbeResult(trait=self.trait, requested=req, measured=None, score=0.0,
+                               detail={"error": str(exc)[:160]})
         measured = None
         conf = 0.0
         for p in preds:  # highest-scoring mappable label
