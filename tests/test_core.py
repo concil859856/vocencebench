@@ -198,21 +198,49 @@ def test_evaluate_pair_probe_and_judge_one_call():
     assert judge.swap is True                          # restored after the call
 
 
-def test_decide_weighted_composite_and_margin():
+def test_geometric_composite_and_gate():
+    # geometric mean punishes one low value; gate zeros the sample.
+    assert abs(vb.geometric_composite([("a", 1.0), ("b", 1.0)]) - 1.0) < 1e-6
+    c = vb.geometric_composite([("a", 1.0), ("b", 1.0), ("c", 0.05)])
+    assert c < 0.4  # one bad dim tanks it (arithmetic mean would be ~0.68)
+    assert vb.geometric_composite([("a", 1.0)], gate=0) == 0.0  # gate veto
+
+
+def test_dynamic_margin():
+    assert abs(vb.dynamic_margin(0.60) - 0.040) < 1e-9   # 0.10*(1-0.6)
+    assert abs(vb.dynamic_margin(0.90) - 0.015) < 1e-9   # floor
+    assert abs(vb.dynamic_margin(0.95) - 0.015) < 1e-9
+
+
+def _h2h(scores_a, scores_b, nat_a3, nat_b3, n):
     from vocencebench.compare import Head2Head
-    h = Head2Head(label_a="A", label_b="B", n=1,
-                  objective_a={"gender": 1.0, "tone": 1.0, "emotion": 0.0},
-                  objective_b={"gender": 0.0, "tone": 0.0, "emotion": 1.0},
-                  pairwise_a={"naturalness": 1.0})
-    d = vb.decide(h)  # emotion down-weighted to 0.5 by default
-    # A: (1+1+0.5*0)/2.5 = 0.8 ; B: (0+0+0.5*1)/2.5 = 0.2
-    assert abs(d.adherence["A"] - 0.8) < 1e-6 and abs(d.adherence["B"] - 0.2) < 1e-6
-    assert d.winner == "A"
-    # near-equal composites within margin -> tie
-    h2 = Head2Head(label_a="A", label_b="B", n=1,
-                   objective_a={"gender": 0.50}, objective_b={"gender": 0.51},
-                   pairwise_a={"naturalness": 0.5})
-    assert vb.decide(h2, margin=0.03).winner == "tie"
+    per = []
+    for i in range(n):
+        per.append({"id": str(i),
+            "objective": [{"trait": t, "a": {"score": scores_a[t]}, "b": {"score": scores_b[t]}}
+                          for t in scores_a],
+            "pairwise": [{"dimension": "naturalness", "score_a": nat_a3, "score_b": nat_b3}]})
+    return Head2Head(label_a="A", label_b="B", n=n, per_sample=per)
+
+
+def test_decide_clear_winner_with_enough_samples():
+    # A clearly better on every dim, many identical samples -> LCB clears margin.
+    h = _h2h({"gender": 0.95, "pace": 0.9, "tone": 0.9}, {"gender": 0.5, "pace": 0.5, "tone": 0.5},
+             nat_a3=3, nat_b3=1, n=40)
+    d = vb.decide(h)
+    assert d.winner == "A" and d.lcb > d.margin
+
+
+def test_decide_ties_when_too_few_samples():
+    # Tiny real gap, only a few (noisy) samples -> LCB within margin -> tie.
+    from vocencebench.compare import Head2Head
+    per = [{"id": str(i),
+            "objective": [{"trait": "gender", "a": {"score": 0.8 if i % 2 else 0.6},
+                           "b": {"score": 0.6 if i % 2 else 0.8}}],
+            "pairwise": [{"dimension": "naturalness", "score_a": 2, "score_b": 2}]}
+           for i in range(4)]
+    h = Head2Head(label_a="A", label_b="B", n=4, per_sample=per)
+    assert vb.decide(h).winner == "tie"
 
 
 def test_evaluate_end_to_end():

@@ -1,117 +1,154 @@
-"""Decide an overall winner from a comparison, with configurable weights.
+"""Decide an overall winner from a comparison — the finalized aggregation.
 
-Combines per-trait adherence (correctness) and naturalness (preference) into one
-composite per model and picks a winner if it clears a margin. Everything is
-configurable; the defaults are sensible starting points, not calibrated constants.
+Pipeline (all steps configurable, sensible defaults):
+
+  1. per dimension  -> desirability in [0,1]           (already produced upstream)
+  2. per sample     -> geometric mean of desirabilities x intelligibility gate
+  3. per model      -> arithmetic mean of sample composites
+  4. A vs B         -> paired bootstrap Lower Confidence Bound of (challenger - incumbent)
+  5. winner         -> LCB > dynamic margin, else tie
+
+The geometric mean (step 2) is non-compensatory: a low score in any one dimension
+drags the whole sample down, so no single field can dominate or be gamed. The gate is a
+hard veto (unintelligible -> 0). The LCB + margin (steps 4-5) only crown a winner on a
+statistically real AND perceptually meaningful improvement.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
-# Default per-trait weights. Unlisted traits default to 1.0; the classifier-noisy ones
-# are down-weighted so a bad reading can't swing the verdict before calibration.
-DEFAULT_TRAIT_WEIGHTS: Dict[str, float] = {"emotion": 0.5, "accent": 0.5}
-# Axis weights: adherence (obeying the prompt) leads, naturalness (sounding good) follows.
-DEFAULT_W_ADHERENCE = 0.6
-DEFAULT_W_NATURALNESS = 0.4
-DEFAULT_MARGIN = 0.03
+# --- defaults (grounded in the research) ------------------------------------------
+EPS = 0.01                 # desirability floor: softens the single-zero veto
+C_MARGIN = 0.10            # dynamic-margin coefficient (fraction of remaining headroom)
+FLOOR_MARGIN = 0.015       # margin floor ~= CMOS 0.09 (just-noticeable difference)
+BOOTSTRAP_N = 2000
+ALPHA = 0.05               # 5% one-sided LCB (95% confidence)
+SEED = 3151662
 
 
 @dataclass
 class Decision:
     labels: tuple
-    winner: str                       # a label, or "tie"
-    composite: Dict[str, float] = field(default_factory=dict)
-    adherence: Dict[str, float] = field(default_factory=dict)
-    naturalness: Dict[str, float] = field(default_factory=dict)
-    margin: float = DEFAULT_MARGIN
+    winner: str                                  # a label, or "tie"
+    scores: Dict[str, float] = field(default_factory=dict)     # per-model composite S
+    challenger: str = ""
+    incumbent: str = ""
+    lcb: float = 0.0                             # LCB(challenger - incumbent)
+    margin: float = 0.0
     reason: str = ""
 
 
-def _weighted_adherence(scores: Dict[str, Optional[float]], weights: Dict[str, float]) -> float:
+def dynamic_margin(incumbent_score: float, *, c: float = C_MARGIN, floor: float = FLOOR_MARGIN) -> float:
+    """Headroom-scaled margin: max(floor, c * (1 - incumbent)). Bar rises near saturation."""
+    return round(max(floor, c * (1.0 - incumbent_score)), 6)
+
+
+def geometric_composite(dims: List[tuple], gate: int = 1, *, eps: float = EPS,
+                        weights: Optional[Dict[str, float]] = None) -> float:
+    """(Weighted) geometric mean of [0,1] desirabilities, times the gate.
+
+    ``dims`` is a list of (name, score) pairs (score in [0,1]); ``gate`` 0 -> composite 0.
+    """
+    if gate == 0 or not dims:
+        return 0.0
     num = den = 0.0
-    for trait, s in scores.items():
-        if s is None:
-            continue
-        w = weights.get(trait, 1.0)
-        num += w * s
+    for name, s in dims:
+        w = (weights or {}).get(name, 1.0)
+        num += w * math.log(max(min(float(s), 1.0), eps))
         den += w
-    return round(num / den, 6) if den else 0.0
+    return round(math.exp(num / den), 6) if den else 0.0
+
+
+def _sample_dims(rec: dict, side: str) -> List[tuple]:
+    """Collect (name, desirability) for one model on one sample from a per_sample record."""
+    dims: List[tuple] = []
+    for o in rec.get("objective", []):
+        s = (o.get(side) or {}).get("score")
+        if s is not None:
+            dims.append((o["trait"], s))
+    for p in rec.get("pairwise", []):
+        if p.get("dimension") == "naturalness":
+            sc = p.get("score_a") if side == "a" else p.get("score_b")
+            if sc is not None:
+                dims.append(("naturalness", sc / 3.0))   # judge 0-3 -> [0,1]
+    return dims
+
+
+def sample_composites(h2h) -> Dict[str, List[float]]:
+    """Per-model list of per-sample composites (geometric mean x gate)."""
+    la, lb = h2h.label_a, h2h.label_b
+    ca: List[float] = []
+    cb: List[float] = []
+    for rec in h2h.per_sample:
+        ca.append(geometric_composite(_sample_dims(rec, "a"), rec.get("gate_a", 1)))
+        cb.append(geometric_composite(_sample_dims(rec, "b"), rec.get("gate_b", 1)))
+    return {la: ca, lb: cb}
+
+
+def _paired_lcb(diff: List[float], *, n_boot: int, alpha: float, seed: int) -> float:
+    """5%-percentile of the bootstrapped mean of the paired differences."""
+    import numpy as np
+    d = np.asarray(diff, dtype=np.float64)
+    if d.size == 0:
+        return 0.0
+    if d.size == 1:
+        return float(d[0])
+    rng = np.random.default_rng(seed)
+    means = d[rng.integers(0, d.size, size=(n_boot, d.size))].mean(axis=1)
+    return float(np.percentile(means, alpha * 100))
 
 
 def decide(
-    comparison,
+    h2h,
     *,
-    labels: Optional[tuple] = None,
-    trait_weights: Optional[Dict[str, float]] = None,
-    w_adherence: float = DEFAULT_W_ADHERENCE,
-    w_naturalness: float = DEFAULT_W_NATURALNESS,
-    margin: float = DEFAULT_MARGIN,
+    incumbent: Optional[str] = None,
+    weights: Optional[Dict[str, float]] = None,
+    eps: float = EPS,
+    c: float = C_MARGIN,
+    floor: float = FLOOR_MARGIN,
+    n_boot: int = BOOTSTRAP_N,
+    alpha: float = ALPHA,
+    seed: int = SEED,
 ) -> Decision:
-    """Pick the winner from a :class:`Head2Head` (dataset) or :class:`PairResult` (one duel).
+    """Decide the winner of a :class:`Head2Head`.
 
-    composite = w_adherence · adherence + w_naturalness · naturalness, per model. The
-    higher composite wins if the gap exceeds ``margin``, else it is a tie. ``adherence``
-    is a per-trait-weighted mean of each model's match; ``naturalness`` is each model's
-    quality/preference in [0,1].
+    ``incumbent`` names the model being defended (king). If omitted, the lower-scoring
+    model is treated as the incumbent/baseline and the higher-scoring model is the
+    challenger. A challenger wins only if the paired bootstrap LCB of its composite
+    advantage exceeds the dynamic margin; otherwise it is a tie.
     """
-    weights = dict(DEFAULT_TRAIT_WEIGHTS)
-    if trait_weights:
-        weights.update(trait_weights)
+    la, lb = h2h.label_a, h2h.label_b
+    # weighted geometric composites per sample (recompute so weights apply here too)
+    ca: List[float] = []
+    cb: List[float] = []
+    for rec in h2h.per_sample:
+        ca.append(geometric_composite(_sample_dims(rec, "a"), rec.get("gate_a", 1),
+                                      eps=eps, weights=weights))
+        cb.append(geometric_composite(_sample_dims(rec, "b"), rec.get("gate_b", 1),
+                                      eps=eps, weights=weights))
+    comps = {la: ca, lb: cb}
+    scores = {la: round(sum(ca) / len(ca), 6) if ca else 0.0,
+              lb: round(sum(cb) / len(cb), 6) if cb else 0.0}
 
-    scores_a, scores_b, nat_a, nat_b, la, lb = _extract(comparison, labels)
-    adh_a = _weighted_adherence(scores_a, weights)
-    adh_b = _weighted_adherence(scores_b, weights)
-    comp_a = round(w_adherence * adh_a + w_naturalness * nat_a, 6)
-    comp_b = round(w_adherence * adh_b + w_naturalness * nat_b, 6)
-
-    if comp_a - comp_b > margin:
-        winner = la
-    elif comp_b - comp_a > margin:
-        winner = lb
+    # roles: explicit incumbent, else the lower-scoring model is the baseline to beat
+    if incumbent in (la, lb):
+        inc = incumbent
     else:
-        winner = "tie"
+        inc = la if scores[la] <= scores[lb] else lb
+    chal = lb if inc == la else la
 
-    reason = (f"adherence {la} {adh_a:.2f} vs {lb} {adh_b:.2f} (weight {w_adherence}); "
-              f"naturalness {la} {nat_a:.2f} vs {lb} {nat_b:.2f} (weight {w_naturalness}); "
-              f"composite {la} {comp_a:.3f} vs {lb} {comp_b:.3f}; "
-              f"margin {margin} -> {winner}")
-    return Decision(labels=(la, lb), winner=winner,
-                    composite={la: comp_a, lb: comp_b},
-                    adherence={la: adh_a, lb: adh_b},
-                    naturalness={la: nat_a, lb: nat_b},
-                    margin=margin, reason=reason)
+    diff = [x - y for x, y in zip(comps[chal], comps[inc])]
+    lcb = round(_paired_lcb(diff, n_boot=n_boot, alpha=alpha, seed=seed), 6)
+    margin = dynamic_margin(scores[inc], c=c, floor=floor)
+    winner = chal if lcb > margin else "tie"
 
-
-def _extract(comparison, labels):
-    """Pull per-model trait scores + naturalness in [0,1] from either input type."""
-    if hasattr(comparison, "objective_a"):  # Head2Head (dataset-level aggregates)
-        la, lb = labels or (comparison.label_a, comparison.label_b)
-        scores_a = dict(comparison.objective_a)
-        scores_b = dict(comparison.objective_b)
-        nat_a = comparison.pairwise_a.get("naturalness", 0.5)
-        nat_b = round(1.0 - nat_a, 6)
-        return scores_a, scores_b, nat_a, nat_b, la, lb
-
-    if hasattr(comparison, "traits"):  # PairResult (single duel)
-        la, lb = labels or ("a", "b")
-        scores_a = {t: te.score_a for t, te in comparison.traits.items()}
-        scores_b = {t: te.score_b for t, te in comparison.traits.items()}
-        nat_a, nat_b = _pair_naturalness(comparison.naturalness)
-        return scores_a, scores_b, nat_a, nat_b, la, lb
-
-    raise TypeError("decide() expects a Head2Head or PairResult")
-
-
-def _pair_naturalness(v):
-    if v is None:
-        return 0.5, 0.5
-    if v.score_a is not None and v.score_b is not None:
-        return round(v.score_a / 3.0, 6), round(v.score_b / 3.0, 6)
-    if v.winner == "a":
-        return 1.0, 0.0
-    if v.winner == "b":
-        return 0.0, 1.0
-    return 0.5, 0.5
+    reason = (f"{chal} composite {scores[chal]:.3f} vs {inc} {scores[inc]:.3f}; "
+              f"paired LCB({chal}-{inc}) = {lcb:.3f}; "
+              f"margin (incumbent {inc}={scores[inc]:.2f}) = {margin:.3f}; "
+              f"LCB {'>' if lcb > margin else '<='} margin -> "
+              f"{'WIN: ' + chal if winner != 'tie' else 'TIE'}")
+    return Decision(labels=(la, lb), winner=winner, scores=scores, challenger=chal,
+                    incumbent=inc, lcb=lcb, margin=margin, reason=reason)

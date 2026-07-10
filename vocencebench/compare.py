@@ -25,7 +25,9 @@ class Head2Head:
     n: int = 0
     objective_a: Dict[str, float] = field(default_factory=dict)
     objective_b: Dict[str, float] = field(default_factory=dict)
-    pairwise_a: Dict[str, float] = field(default_factory=dict)   # naturalness win-rate for A
+    pairwise_a: Dict[str, float] = field(default_factory=dict)   # naturalness win-rate for A (display)
+    naturalness_a: float = 0.5   # absolute mean naturalness quality [0,1] for A
+    naturalness_b: float = 0.5   # ... for B (used by decide, comparable to adherence)
     per_sample: List[dict] = field(default_factory=list)
 
     def summary(self) -> str:
@@ -67,7 +69,9 @@ def compare_models(
     :func:`evaluate_pair` (per-trait focused judging and no order-swap by default)."""
     obj_a: Dict[str, List[float]] = defaultdict(list)
     obj_b: Dict[str, List[float]] = defaultdict(list)
-    nat: List[float] = []
+    nat: List[float] = []                 # win value for A (win-rate display)
+    nat_qa: List[float] = []              # absolute naturalness quality for A
+    nat_qb: List[float] = []              # ... for B
     h = Head2Head(label_a=labels[0], label_b=labels[1], n=len(dataset))
 
     for s in dataset:
@@ -93,6 +97,9 @@ def compare_models(
         if pr.naturalness is not None:
             v = pr.naturalness
             nat.append(_wv(v))
+            qa, qb = _quality(v)
+            nat_qa.append(qa)
+            nat_qb.append(qb)
             rec["pairwise"].append({"dimension": "naturalness", "winner": v.winner,
                 "consistent": v.consistent, "score_a": v.score_a, "score_b": v.score_b,
                 "reasoning_a": v.reasoning_a, "reasoning_b": v.reasoning_b, "comparison": v.reasoning})
@@ -102,6 +109,8 @@ def compare_models(
     h.objective_b = {t: _mean(v) for t, v in obj_b.items()}
     if nat:
         h.pairwise_a = {"naturalness": round(sum(nat) / len(nat), 6)}
+        h.naturalness_a = round(sum(nat_qa) / len(nat_qa), 6)
+        h.naturalness_b = round(sum(nat_qb) / len(nat_qb), 6)
     return h
 
 
@@ -109,3 +118,15 @@ def _wv(v) -> float:
     if not v.consistent:
         return 0.5
     return 1.0 if v.winner == WINNER_A else 0.5 if v.winner == TIE else 0.0
+
+
+def _quality(v):
+    """Absolute per-model naturalness quality in [0,1] from the judge's 0-3 scores;
+    falls back to the winner if scores are missing."""
+    if v.score_a is not None and v.score_b is not None:
+        return round(v.score_a / 3.0, 6), round(v.score_b / 3.0, 6)
+    if v.winner == WINNER_A:
+        return 1.0, 0.0
+    if v.winner == WINNER_B:
+        return 0.0, 1.0
+    return 0.5, 0.5

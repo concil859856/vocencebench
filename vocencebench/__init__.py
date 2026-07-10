@@ -17,7 +17,7 @@ Typical use::
 from vocencebench import adapters, calibration, corpus, traits
 from vocencebench.compare import Head2Head, compare_models
 from vocencebench.corpus import build_corpus, build_splits
-from vocencebench.decide import Decision, decide
+from vocencebench.decide import Decision, decide, dynamic_margin, geometric_composite
 from vocencebench.judge import Judge
 from vocencebench.pair import PairResult, TraitEval, evaluate_pair
 from vocencebench.probes import default_probes, with_classifiers
@@ -39,6 +39,8 @@ __all__ = [
     "Head2Head",
     "decide",
     "Decision",
+    "dynamic_margin",
+    "geometric_composite",
     "default_probes",
     "with_classifiers",
     "build_corpus",
