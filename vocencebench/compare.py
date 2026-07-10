@@ -59,12 +59,12 @@ def compare_models(
     probes: Optional[Sequence] = None,
     labels: tuple = ("model_a", "model_b"),
     score_naturalness: bool = True,
-    all_at_once: bool = True,
+    all_at_once: bool = False,
     swap_eval: bool = False,
     on_audio: Optional[Callable[[str, bytes, bytes], None]] = None,
 ) -> Head2Head:
     """Compare two models symmetrically. ``all_at_once`` and ``swap_eval`` are passed to
-    :func:`evaluate_pair` (one judge call per duel by default, no order-swap)."""
+    :func:`evaluate_pair` (per-trait focused judging and no order-swap by default)."""
     obj_a: Dict[str, List[float]] = defaultdict(list)
     obj_b: Dict[str, List[float]] = defaultdict(list)
     nat: List[float] = []

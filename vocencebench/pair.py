@@ -63,7 +63,7 @@ def evaluate_pair(
     probes: Optional[Sequence] = None,
     category: str = "general",
     swap_eval: bool = False,
-    all_at_once: bool = True,
+    all_at_once: bool = False,
     naturalness: bool = True,
 ) -> PairResult:
     """Compare two clips on every requested trait + naturalness.
@@ -75,8 +75,9 @@ def evaluate_pair(
         probes: trait probes (defaults to the model-free acoustic set).
         swap_eval: also run the judge in the reversed audio order and keep only
             consistent verdicts (default False).
-        all_at_once: score all judged traits + naturalness in ONE judge call
-            (default True); False uses one call per judged trait.
+        all_at_once: default False — one focused judge call per judged trait (more
+            reliable). Set True to score all judged traits + naturalness in ONE call
+            (cheaper, but the judge splits attention across traits).
     """
     from vocencebench.probes import default_probes
     wav_a, wav_b = to_wav_bytes(clip_a), to_wav_bytes(clip_b)
