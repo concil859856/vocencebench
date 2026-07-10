@@ -1,12 +1,14 @@
 """LLM-driven corpus generator.
 
-Produces a varied, natural benchmark: for each (trait, level, difficulty) cell an LLM
-writes several natural-language voice instructions each paired with a fitting script at
-the requested reading difficulty. One-factor-at-a-time (OFAT) — each item requests a
-single trait so its adherence is cleanly attributable.
+Each item is a FULLY-SPECIFIED voice: one flowing natural-language ``instruction`` that
+weaves in ALL eight controllable traits (age, gender, emotion, pitch, loudness, pace,
+accent, tone), paired with a ``text`` script at a target reading difficulty that suits
+the persona but never names a trait in words. Every trait mentioned in the instruction is
+also emitted as a structured field, so each clip can be probed on every trait.
 
-The output is frozen to JSONL and pinned by content hash, so results are reproducible
-without re-generating (generation is stochastic; the *frozen* corpus is the artifact).
+Trait combinations are sampled deterministically (seeded, balanced so each value appears
+about equally). The LLM wording is stochastic, so the *frozen* corpus — written to JSONL
+and pinned by content hash — is the reproducible artifact, not the generation run.
 """
 
 from __future__ import annotations
@@ -14,105 +16,170 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import random
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Sequence
 
 from vocencebench import traits as _traits
 from vocencebench.schema import Sample
 
+# Traits every item specifies, in the order they are presented to the writer.
+_TRAIT_ORDER = ("age", "gender", "emotion", "pitch", "loudness", "pace", "accent", "tone")
+
+# Age is continuous (scored within +/- tolerance); sample from a pool spanning child to
+# elderly, richer than the registry's reference points for natural variety.
+_AGE_POOL = (8, 13, 20, 25, 30, 38, 45, 55, 60, 70, 78)
+
 DIFFICULTIES = ("easy", "normal", "hard")
+# How the 3 difficulty levels are mixed across the corpus (hard = fewer, they are stress tests).
+_DIFF_WEIGHTS = {"easy": 0.35, "normal": 0.40, "hard": 0.25}
+_DIFF_IDX = {"easy": 0, "normal": 1, "hard": 2}
 _DIFF_GUIDE = {
     "easy": "a short, simple sentence of common everyday words (6-12 words).",
-    "normal": "a natural everyday sentence of moderate length (12-20 words).",
+    "normal": "a natural everyday sentence of moderate length (12-22 words).",
     "hard": ("a sentence that is genuinely hard to read aloud: pick ONE challenge — a"
              " tongue-twister, or numbers/dates/currency/emails/URLs, or foreign words"
-             " with code-switching, or deeply nested clauses, or dense paralinguistic"
-             " cues (interjections, stuttering, CAPS emphasis, elongation)."),
+             " with code-switching, or deeply nested clauses."),
 }
-_DIFF_IDX = {"easy": 0, "normal": 1, "hard": 2}
 
 _SYSTEM = (
-    "You write items for a prompt-controllable text-to-speech (PromptTTS) evaluation. Each"
-    " item is a natural-language VOICE INSTRUCTION plus a SCRIPT (the sentence to be"
-    " spoken). Instructions must read like a real user request and vary in phrasing. The"
-    " script must suit the requested voice but must NEVER state the trait in words (never"
-    ' write "he said angrily" or "in a British accent"); the trait must come through only'
-    " in how it is spoken. Output strict JSON."
+    "You write items for a prompt-controllable text-to-speech (PromptTTS) benchmark. Each"
+    " item is one flowing natural-language VOICE INSTRUCTION describing the whole voice,"
+    " plus a SCRIPT (the sentence to be spoken). The instruction must read like a real"
+    " person requesting exactly that voice, weaving every requested attribute in naturally"
+    " — never a mechanical checklist of the label words. The script must suit the persona"
+    ' but must NEVER state a trait in words (never write "he said angrily" or "in a British'
+    ' accent"); the trait must come through only in how it is spoken. Output strict JSON.'
 )
 
 
-def _request_phrase(trait: str, value: str) -> str:
-    if _traits.get(trait).numeric:      # age in years
-        return f"a {value}-year-old person's voice"
-    return f'a voice with {trait} = "{value}"'
+# --------------------------------------------------------------------- spec sampling
+def _balanced_deck(values: Sequence, n: int, rng: random.Random) -> List:
+    """A length-n list where each value appears ~equally, order shuffled."""
+    reps = (n + len(values) - 1) // len(values)
+    deck = list(values) * reps
+    rng.shuffle(deck)
+    return deck[:n]
 
 
-def _cell_prompt(trait: str, value: str, difficulty: str, n: int) -> str:
+def sample_specs(n: int, seed: int = 20250710) -> List[dict]:
+    """Deterministically sample ``n`` fully-specified trait combinations.
+
+    Each of the 8 traits is drawn from an independently-shuffled balanced deck, so every
+    value gets near-equal coverage while combinations stay varied and uncorrelated.
+    """
+    rng = random.Random(seed)
+    columns = {
+        "age": _balanced_deck(_AGE_POOL, n, rng),
+        "gender": _balanced_deck(_traits.get("gender").values, n, rng),
+        "emotion": _balanced_deck(_traits.get("emotion").values, n, rng),
+        "pitch": _balanced_deck(_traits.get("pitch").values, n, rng),
+        "loudness": _balanced_deck(_traits.get("loudness").values, n, rng),
+        "pace": _balanced_deck(_traits.get("pace").values, n, rng),
+        "accent": _balanced_deck(_traits.get("accent").values, n, rng),
+        "tone": _balanced_deck(_traits.get("tone").values, n, rng),
+    }
+    # Difficulty deck honoring the weights.
+    diff_deck: List[str] = []
+    for d, w in _DIFF_WEIGHTS.items():
+        diff_deck += [d] * round(w * n)
+    while len(diff_deck) < n:
+        diff_deck.append("normal")
+    diff_deck = diff_deck[:n]
+    rng.shuffle(diff_deck)
+
+    specs = []
+    for i in range(n):
+        spec = {t: columns[t][i] for t in _TRAIT_ORDER}
+        spec["difficulty"] = diff_deck[i]
+        specs.append(spec)
+    return specs
+
+
+# ------------------------------------------------------------------- item generation
+def _attr_lines(spec: dict) -> str:
+    out = []
+    for t in _TRAIT_ORDER:
+        v = f"{spec[t]} years old" if t == "age" else spec[t]
+        out.append(f"  - {t}: {v}")
+    return "\n".join(out)
+
+
+def _item_prompt(spec: dict) -> str:
+    d = spec["difficulty"]
     return (
-        f"Produce {n} DIVERSE items requesting {_request_phrase(trait, value)}.\n"
-        f"- Vary the instruction wording across the {n} items (do not reuse a template).\n"
-        f"- Mention ONLY the {trait} attribute; leave every other voice attribute unstated.\n"
-        f"- Each script is {difficulty} difficulty: {_DIFF_GUIDE[difficulty]}\n"
-        f"- The script should fit {_request_phrase(trait, value)} in content/register, but"
-        f" must not name the {trait}.\n"
-        'Return strict JSON: {"items":[{"instruction":"...","text":"..."}, ...]} with exactly'
-        f" {n} items."
+        "Create ONE TTS evaluation item for a voice with EXACTLY these 8 attributes "
+        "(weave ALL of them into the instruction naturally; add NO other attributes; omit NONE):\n"
+        f"{_attr_lines(spec)}\n\n"
+        "1) instruction: one vivid, flowing 1-2 sentence description of this voice, as a real "
+        "person would request it (e.g. 'A bubbly twenty-year-old American woman with a bright, "
+        "high voice, speaking quickly and cheerfully at a normal volume'). Weave in ALL 8 "
+        "attributes but do NOT list them mechanically or reuse the raw label words as a checklist.\n"
+        f"2) text: {_DIFF_GUIDE[d]} It must SUIT this persona/emotion and must NOT name any of "
+        "the attributes in words.\n"
+        'Return strict JSON: {"instruction":"...","text":"..."}'
     )
 
 
-def _gen_cell(client, model: str, trait: str, value: str, difficulty: str, n: int,
-              retries: int = 3) -> List[dict]:
+def _gen_item(client, model: str, spec: dict, retries: int = 4) -> dict:
     from google.genai import types
     from vocencebench.judge.base import extract_json
-    out: List[dict] = []
+    o: dict = {}
     for _ in range(retries):
         resp = client.models.generate_content(
-            model=model, contents=[_cell_prompt(trait, value, difficulty, n)],
+            model=model, contents=[_item_prompt(spec)],
             config=types.GenerateContentConfig(
                 system_instruction=_SYSTEM, temperature=1.0,
                 response_mime_type="application/json"),
         )
-        obj = extract_json(resp.text or "")     # fence-tolerant, with regex fallback
-        items = obj.get("items", []) if isinstance(obj, dict) else (obj if isinstance(obj, list) else [])
-        out = [{"instruction": str(it["instruction"]).strip(), "text": str(it["text"]).strip()}
-               for it in items
-               if isinstance(it, dict) and it.get("instruction") and it.get("text")]
-        if out:                                 # retry only when the cell came back empty
+        cand = extract_json(resp.text or "")
+        if isinstance(cand, dict) and cand.get("instruction") and cand.get("text"):
+            o = cand
             break
-    return out[:n]
+    return {"instruction": str(o.get("instruction", "")).strip(),
+            "text": str(o.get("text", "")).strip()}
+
+
+def _spec_traits(spec: dict) -> Dict[str, str]:
+    return {t: str(spec[t]) for t in _TRAIT_ORDER}
 
 
 def generate_corpus(
     *,
-    trait_names: Optional[Sequence[str]] = None,
-    difficulties: Sequence[str] = DIFFICULTIES,
-    seeds: int = 2,
+    n: int = 500,
+    seed: int = 20250710,
     model: str = "gemini-3.1-pro-preview",
     api_key: Optional[str] = None,
+    workers: int = 8,
     progress=None,
 ) -> List[Sample]:
-    """Generate an OFAT corpus across every (trait, level, difficulty) cell.
+    """Generate ``n`` fully-specified multi-trait items.
 
-    ``seeds`` items per cell. Returns a list of :class:`Sample`. Requires ``google-genai``
-    and a Gemini API key (env ``GEMINI_API_KEY`` if not passed).
+    Deterministic trait combos (via ``seed``); the LLM writes the instruction + script for
+    each. Returns a list of :class:`Sample`. Requires ``google-genai`` and a Gemini API key
+    (env ``GEMINI_API_KEY`` if not passed). ``progress(done, total)`` is called as items land.
     """
     from google import genai
     client = genai.Client(api_key=api_key or os.environ.get("GEMINI_API_KEY"))
-    names = list(trait_names) if trait_names else _traits.names()
+    specs = sample_specs(n, seed)
+
+    def _one(spec):
+        return spec, _gen_item(client, model, spec)
 
     samples: List[Sample] = []
-    idx = 0
-    for tname in names:
-        trait = _traits.get(tname)
-        for value in trait.values:
-            for diff in difficulties:
-                items = _gen_cell(client, model, tname, value, diff, seeds)
-                for it in items:
-                    samples.append(Sample(
-                        id=f"vb-{idx:05d}", text=it["text"], instruction=it["instruction"],
-                        traits={tname: value}, category="general", difficulty=_DIFF_IDX[diff]))
-                    idx += 1
-                if progress:
-                    progress(tname, value, diff, len(items))
+    done = 0
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        results = list(ex.map(_one, specs))   # ordered -> reproducible ids
+    for i, (spec, item) in enumerate(results):
+        if not item["instruction"] or not item["text"]:
+            continue                            # skip any that never filled after retries
+        samples.append(Sample(
+            id=f"vb-{i:05d}", text=item["text"], instruction=item["instruction"],
+            traits=_spec_traits(spec), category="general",
+            difficulty=_DIFF_IDX[spec["difficulty"]]))
+        done += 1
+        if progress:
+            progress(done, n)
     return samples
 
 
