@@ -48,7 +48,9 @@ class Verdict:
     winner: str            # WINNER_A | WINNER_B | TIE
     score_a: Optional[int] = None   # 0-3 per-clip score, when the judge provides one
     score_b: Optional[int] = None
-    reasoning: str = ""
+    reasoning: str = ""             # the comparison / tie-break text
+    reasoning_a: str = ""           # detailed per-clip analysis (clip a = model)
+    reasoning_b: str = ""           # detailed per-clip analysis (clip b = reference)
     confidence: float = 0.0
     consistent: bool = True         # True if both audio orders agreed (order-swap check)
     raw: Dict[str, Any] = field(default_factory=dict)

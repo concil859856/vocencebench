@@ -134,28 +134,28 @@ class Judge:
         tally = {WINNER_A: 0, WINNER_B: 0, TIE: 0}
         sa: List[int] = []
         sb: List[int] = []
-        reasons: List[str] = []
         confs: List[float] = []
-        per_order_winner: List[str] = []
+        # Detailed reasoning captured from the natural (non-flipped) order so a = clip a.
+        detail = {"reasoning_a": "", "reasoning_b": "", "comparison": ""}
         for first, second, flipped in orders:
             for _ in range(self.votes):
                 res = self.backend.compare(parts, first, second, temperature=self.temperature)
                 w = res.get("winner", TIE)
                 if flipped:
                     w = _flip(w)
-                    # scores were reported for (first=b, second=a); un-flip.
                     res_sa, res_sb = res.get("score_b"), res.get("score_a")
                 else:
                     res_sa, res_sb = res.get("score_a"), res.get("score_b")
+                    if not detail["comparison"] and not detail["reasoning_a"]:
+                        detail = {"reasoning_a": res.get("reasoning_a", ""),
+                                  "reasoning_b": res.get("reasoning_b", ""),
+                                  "comparison": res.get("comparison", "")}
                 tally[w] += 1
                 if res_sa is not None:
                     sa.append(res_sa)
                 if res_sb is not None:
                     sb.append(res_sb)
-                if res.get("comparison"):
-                    reasons.append(res["comparison"])
                 confs.append(res.get("confidence", 0.0))
-            per_order_winner.append(_majority(tally, reset=False))
 
         winner = _argmax_winner(tally)
         # Consistent iff no order produced the opposite decisive winner.
@@ -167,7 +167,9 @@ class Judge:
             winner=winner,
             score_a=int(round(sum(sa) / len(sa))) if sa else None,
             score_b=int(round(sum(sb) / len(sb))) if sb else None,
-            reasoning=reasons[0] if reasons else "",
+            reasoning=detail["comparison"],
+            reasoning_a=detail["reasoning_a"],
+            reasoning_b=detail["reasoning_b"],
             confidence=round(sum(confs) / len(confs), 3) if confs else 0.0,
             consistent=consistent,
             raw={"tally": dict(tally)},
@@ -181,7 +183,3 @@ def _argmax_winner(tally: Dict[str, int]) -> str:
     if b > a and b >= t:
         return WINNER_B
     return TIE
-
-
-def _majority(tally: Dict[str, int], reset: bool) -> str:
-    return _argmax_winner(tally)
