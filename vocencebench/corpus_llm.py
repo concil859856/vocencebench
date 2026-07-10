@@ -59,25 +59,25 @@ def _cell_prompt(trait: str, value: str, difficulty: str, n: int) -> str:
     )
 
 
-def _gen_cell(client, model: str, trait: str, value: str, difficulty: str, n: int) -> List[dict]:
+def _gen_cell(client, model: str, trait: str, value: str, difficulty: str, n: int,
+              retries: int = 3) -> List[dict]:
     from google.genai import types
-    resp = client.models.generate_content(
-        model=model,
-        contents=[_cell_prompt(trait, value, difficulty, n)],
-        config=types.GenerateContentConfig(
-            system_instruction=_SYSTEM, temperature=1.0,
-            response_mime_type="application/json"),
-    )
-    try:
-        obj = json.loads(resp.text)
-        items = obj.get("items", obj if isinstance(obj, list) else [])
-    except Exception:
-        items = []
-    out = []
-    for it in items:
-        if isinstance(it, dict) and it.get("instruction") and it.get("text"):
-            out.append({"instruction": str(it["instruction"]).strip(),
-                        "text": str(it["text"]).strip()})
+    from vocencebench.judge.base import extract_json
+    out: List[dict] = []
+    for _ in range(retries):
+        resp = client.models.generate_content(
+            model=model, contents=[_cell_prompt(trait, value, difficulty, n)],
+            config=types.GenerateContentConfig(
+                system_instruction=_SYSTEM, temperature=1.0,
+                response_mime_type="application/json"),
+        )
+        obj = extract_json(resp.text or "")     # fence-tolerant, with regex fallback
+        items = obj.get("items", []) if isinstance(obj, dict) else (obj if isinstance(obj, list) else [])
+        out = [{"instruction": str(it["instruction"]).strip(), "text": str(it["text"]).strip()}
+               for it in items
+               if isinstance(it, dict) and it.get("instruction") and it.get("text")]
+        if out:                                 # retry only when the cell came back empty
+            break
     return out[:n]
 
 
@@ -129,3 +129,11 @@ def split_holdout(samples: Sequence[Sample], *, holdout_every: int = 5):
     for i, s in enumerate(samples):
         (holdout if i % holdout_every == 0 else public).append(s)
     return public, holdout
+
+
+def load_benchmark(name: str = "benchmark_v1") -> List[Sample]:
+    """Load a frozen benchmark dataset shipped with the package."""
+    from pathlib import Path
+    from vocencebench.schema import load_dataset
+    path = Path(__file__).parent / "datasets" / f"{name}.jsonl"
+    return load_dataset(path)

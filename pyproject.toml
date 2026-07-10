@@ -38,6 +38,9 @@ build-backend = "setuptools.build_meta"
 where = ["."]
 include = ["vocencebench*"]
 
+[tool.setuptools.package-data]
+vocencebench = ["datasets/*.jsonl", "datasets/*.sha256", "py.typed"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

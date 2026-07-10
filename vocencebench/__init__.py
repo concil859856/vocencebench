@@ -17,7 +17,7 @@ Typical use::
 from vocencebench import adapters, calibration, corpus, traits
 from vocencebench.compare import Head2Head, benchmark, compare_models
 from vocencebench.corpus import build_corpus, build_splits
-from vocencebench.corpus_llm import corpus_hash, generate_corpus, split_holdout
+from vocencebench.corpus_llm import corpus_hash, generate_corpus, load_benchmark, split_holdout
 from vocencebench.decide import Decision, decide, dynamic_margin, geometric_composite
 from vocencebench.judge import Judge
 from vocencebench.pair import PairResult, TraitEval, evaluate_pair
@@ -52,6 +52,7 @@ __all__ = [
     "generate_corpus",
     "corpus_hash",
     "split_holdout",
+    "load_benchmark",
     "adapters",
     "calibration",
     "corpus",
