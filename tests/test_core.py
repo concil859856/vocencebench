@@ -198,6 +198,23 @@ def test_evaluate_pair_probe_and_judge_one_call():
     assert judge.swap is True                          # restored after the call
 
 
+def test_decide_weighted_composite_and_margin():
+    from vocencebench.compare import Head2Head
+    h = Head2Head(label_a="A", label_b="B", n=1,
+                  objective_a={"gender": 1.0, "tone": 1.0, "emotion": 0.0},
+                  objective_b={"gender": 0.0, "tone": 0.0, "emotion": 1.0},
+                  pairwise_a={"naturalness": 1.0})
+    d = vb.decide(h)  # emotion down-weighted to 0.5 by default
+    # A: (1+1+0.5*0)/2.5 = 0.8 ; B: (0+0+0.5*1)/2.5 = 0.2
+    assert abs(d.adherence["A"] - 0.8) < 1e-6 and abs(d.adherence["B"] - 0.2) < 1e-6
+    assert d.winner == "A"
+    # near-equal composites within margin -> tie
+    h2 = Head2Head(label_a="A", label_b="B", n=1,
+                   objective_a={"gender": 0.50}, objective_b={"gender": 0.51},
+                   pairwise_a={"naturalness": 0.5})
+    assert vb.decide(h2, margin=0.03).winner == "tie"
+
+
 def test_evaluate_end_to_end():
     model = lambda t, i: _wav(190, 3.0, 0.12)
     ref = lambda t, i: _wav(170, 3.6, 0.03)
