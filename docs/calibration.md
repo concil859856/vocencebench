@@ -35,3 +35,31 @@ and to each other.
 - Run both audio orders and count only consistent verdicts.
 - Pin and log the exact judge model version, temperature, and prompt version with every
   run so results are comparable only within a version boundary.
+
+## Harness API
+
+`vocencebench.calibration` provides the tooling:
+
+```python
+from vocencebench import calibration as cal, build_splits
+
+# 1. Sample comparisons stratified by (category, difficulty, dimension).
+specs = cal.stratified_comparisons(dataset, per_cell=3,
+                                   dimensions=["naturalness", "tone"])
+cal.export_for_labeling(specs, "to_label.jsonl")   # raters fill the "winner" field
+
+# 2. After labelling (and recording each machine_label), load and report.
+gold = cal.load_gold("labelled.jsonl")
+report = cal.agreement_report(gold)     # per dimension: n, human_alpha, judge_accuracy, judge_kappa
+weights = cal.suggest_weights(report)   # kappa-weighted; dimensions at/below chance get 0
+```
+
+Metrics are chance-corrected: `cohen_kappa` (judge vs majority human), `krippendorff_alpha`
+(human-ceiling), `spearman` (ordinal). A held-out split (`build_splits`) keeps a private
+partition so models cannot be tuned against a fixed public set.
+
+From the CLI:
+
+```bash
+vocencebench calibrate --gold labelled.jsonl
+```
