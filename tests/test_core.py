@@ -173,6 +173,31 @@ def test_gold_export_import_roundtrip(tmp_path):
     assert gold[0].human_labels == ["a"]
 
 
+class _MultiStub:
+    """Backend returning a fixed all-traits JSON (for evaluate_pair, all_at_once)."""
+    def raw(self, parts, a, b, *, temperature):
+        return ('{"traits":{"tone":{"score_a":3,"score_b":1,"reasoning_a":"warm A",'
+                '"reasoning_b":"flat B"}},'
+                '"naturalness":{"score_a":3,"score_b":2,"winner":"a","reasoning":"A cleaner"}}')
+    def compare(self, parts, a, b, *, temperature):
+        return {"winner": "a", "score_a": 3, "score_b": 1, "comparison": "", "confidence": 1.0,
+                "reasoning_a": "", "reasoning_b": ""}
+
+
+def test_evaluate_pair_probe_and_judge_one_call():
+    from vocencebench.pair import evaluate_pair
+    judge = Judge(_MultiStub(), swap=True)   # swap must be neutralised by evaluate_pair
+    r = evaluate_pair(_wav(), _wav(), text="one two three four", judge=judge,
+                      traits={"loudness": "normal", "tone": "warm"},
+                      probes=default_probes(), all_at_once=True, swap_eval=False)
+    assert r.traits["loudness"].source == "probe"      # objective -> probe, no API
+    assert r.traits["tone"].source == "judge"          # holistic -> judge
+    assert r.traits["tone"].score_a == 1.0 and r.traits["tone"].score_b == round(1/3, 6) or \
+           abs(r.traits["tone"].score_b - 1/3) < 1e-6
+    assert r.naturalness.winner == WINNER_A
+    assert judge.swap is True                          # restored after the call
+
+
 def test_evaluate_end_to_end():
     model = lambda t, i: _wav(190, 3.0, 0.12)
     ref = lambda t, i: _wav(170, 3.6, 0.03)
