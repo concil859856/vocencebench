@@ -1,0 +1,43 @@
+[project]
+name = "vocencebench"
+version = "0.1.0"
+description = "Prompt-driven text-to-speech evaluation: trait adherence and naturalness, scored by an audio-LLM judge."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Vocence" }]
+keywords = ["tts", "prompttts", "speech", "evaluation", "audio-llm", "benchmark"]
+dependencies = [
+    "numpy>=1.24",
+    "soundfile>=0.12",
+    "httpx>=0.27",
+    "pydantic>=2.6",
+]
+
+[project.optional-dependencies]
+# Audio feature probes (deterministic objective-trait scoring).
+probes = ["librosa>=0.10", "torch>=2.1", "transformers>=4.40"]
+# Google Gemini judge backend.
+gemini = ["google-genai>=0.3"]
+# CLI + dataset tooling.
+cli = ["click>=8.1", "rich>=13.0"]
+test = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+all = [
+    "librosa>=0.10", "torch>=2.1", "transformers>=4.40",
+    "google-genai>=0.3", "click>=8.1", "rich>=13.0",
+]
+
+[project.scripts]
+vocencebench = "vocencebench.cli:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["vocencebench*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
