@@ -132,6 +132,47 @@ def test_classifier_probe_ordinal_partial_credit():
     assert r.measured == "medium" and r.score == 0.5  # adjacent bucket
 
 
+def test_calibration_metrics():
+    from vocencebench import calibration as cal
+    assert cal.cohen_kappa(["a", "b", "tie"], ["a", "b", "tie"]) == 1.0
+    assert cal.cohen_kappa(["a", "a", "a", "a"], ["a", "b", "a", "b"]) == 0.0
+    assert cal.krippendorff_alpha([["a", "a"], ["b", "b"]]) == 1.0
+    assert cal.spearman([1, 2, 3], [3, 2, 1]) == -1.0
+
+
+def test_calibration_report_and_weights():
+    from vocencebench import calibration as cal
+    gold = [cal.GoldItem("0", "naturalness", ["a", "a", "b"], "a"),
+            cal.GoldItem("1", "naturalness", ["b", "b", "b"], "b"),
+            cal.GoldItem("2", "tone", ["a", "b", "tie"], "tie")]
+    rep = cal.agreement_report(gold)
+    assert rep["naturalness"]["judge_accuracy"] == 1.0
+    w = cal.suggest_weights(rep)
+    assert abs(sum(w.values()) - 1.0) < 1e-6 or w == {}
+
+
+def test_build_splits_disjoint():
+    pub, hold = vb.build_splits(20, holdout_every=5)
+    ids_pub = {s.id for s in pub}
+    ids_hold = {s.id for s in hold}
+    assert len(pub) == 16 and len(hold) == 4
+    assert ids_pub.isdisjoint(ids_hold)
+
+
+def test_gold_export_import_roundtrip(tmp_path):
+    from vocencebench import calibration as cal
+    items = [{"sample_id": "0", "dimension": "naturalness", "category": "general", "difficulty": 0}]
+    p = tmp_path / "gold.jsonl"
+    cal.export_for_labeling(items, p)
+    # simulate a rater filling winner
+    lines = p.read_text().splitlines()
+    import json
+    row = json.loads(lines[0]); row["winner"] = "a"
+    p.write_text(json.dumps(row) + "\n")
+    gold = cal.load_gold(p)
+    assert gold[0].human_labels == ["a"]
+
+
 def test_evaluate_end_to_end():
     model = lambda t, i: _wav(190, 3.0, 0.12)
     ref = lambda t, i: _wav(170, 3.6, 0.03)

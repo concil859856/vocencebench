@@ -107,5 +107,22 @@ def eval_cmd(dataset, model_audios, reference_audios, judge_kind, model, base_ur
         click.echo(f"report written to {out}")
 
 
+@main.command()
+@click.option("--gold", required=True, type=click.Path(exists=True), help="Labelled gold JSONL.")
+@click.option("--out", default=None, type=click.Path(dir_okay=False))
+def calibrate(gold: str, out: str) -> None:
+    """Report judge–human agreement per dimension and suggest weights."""
+    from vocencebench import calibration as cal
+    report = cal.agreement_report(cal.load_gold(gold))
+    weights = cal.suggest_weights(report)
+    for dim, r in sorted(report.items()):
+        ka = r.get("judge_kappa")
+        click.echo(f"{dim:16s} n={r['n']:4d} acc={r.get('judge_accuracy')} "
+                   f"kappa={ka} human_alpha={r.get('human_alpha')} weight={weights.get(dim, 0.0)}")
+    if out:
+        Path(out).write_text(json.dumps({"report": report, "weights": weights}, indent=2))
+        click.echo(f"written to {out}")
+
+
 if __name__ == "__main__":
     main()

@@ -14,9 +14,10 @@ Typical use::
     print(report.summary())
 """
 
-from vocencebench import traits
+from vocencebench import adapters, calibration, corpus, traits
+from vocencebench.corpus import build_corpus, build_splits
 from vocencebench.judge import Judge
-from vocencebench.probes import default_probes
+from vocencebench.probes import default_probes, with_classifiers
 from vocencebench.runner import evaluate
 from vocencebench.schema import (
     EvalReport, ProbeResult, Sample, SampleResult, Verdict,
@@ -29,6 +30,12 @@ __all__ = [
     "Judge",
     "evaluate",
     "default_probes",
+    "with_classifiers",
+    "build_corpus",
+    "build_splits",
+    "adapters",
+    "calibration",
+    "corpus",
     "traits",
     "Sample",
     "Verdict",

@@ -95,7 +95,7 @@ def _traits_for(i: int, keys: Sequence[str]) -> Dict[str, str]:
 
 
 def build_corpus(n: int, *, categories: Sequence[str] = tuple(TEXTS.keys()),
-                 traits: Sequence[str] = tuple(_TRAIT_ORDER)) -> List[Sample]:
+                 traits: Sequence[str] = tuple(_TRAIT_ORDER), prefix: str = "vb") -> List[Sample]:
     """Generate ``n`` deterministic samples spread across ``categories``."""
     if n < 1:
         raise ValueError("n must be >= 1")
@@ -107,7 +107,25 @@ def build_corpus(n: int, *, categories: Sequence[str] = tuple(TEXTS.keys()),
         text = texts[(i // len(cats)) % len(texts)]
         tr = _traits_for(i, traits)
         samples.append(Sample(
-            id=f"vb-{i:05d}", text=text, instruction=render_instruction(tr),
+            id=f"{prefix}-{i:05d}", text=text, instruction=render_instruction(tr),
             traits=tr, category=cat, difficulty=(i // (len(cats) * 3)) % 4,
         ))
     return samples
+
+
+def build_splits(n: int, *, holdout_every: int = 5, **kw):
+    """Split a corpus into a public and a held-out partition, deterministically.
+
+    Every ``holdout_every``-th sample goes to the held-out set. Keep the held-out split
+    private so future models cannot be implicitly tuned against a fixed public set; a
+    large public-minus-holdout score gap signals overfitting.
+
+    Returns ``(public, holdout)`` lists of :class:`Sample`.
+    """
+    if holdout_every < 2:
+        raise ValueError("holdout_every must be >= 2")
+    corpus = build_corpus(n, **kw)
+    public, holdout = [], []
+    for i, s in enumerate(corpus):
+        (holdout if i % holdout_every == 0 else public).append(s)
+    return public, holdout
