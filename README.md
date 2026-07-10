@@ -41,14 +41,25 @@ verdict = judge.compare(
 print(verdict.winner, verdict.scores, verdict.reasoning)
 
 # 3. Or run a full evaluation of a model against a reference over a dataset.
+from vocencebench.adapters import Qwen3TTSAdapter          # or OpenAICompatTTS / from_callable
 report = vb.evaluate(
     dataset=vb.load_dataset("mydata.jsonl"),
-    model=my_tts,              # (text, instruction) -> wav bytes
-    reference=reference_tts,   # the fixed anchor
+    model=Qwen3TTSAdapter("/path/to/checkpoint"),          # (text, instruction) -> wav
+    reference=reference_tts,                                # the fixed anchor
     judge=judge,
-    probes=vb.default_probes(),
+    probes=vb.with_classifiers(),                           # acoustic + gender/emotion/accent
 )
 print(report.summary())        # win-rates, per-trait control-success, WER
+```
+
+Generate a trait-controlled dataset (with a private held-out split) and calibrate the
+judge against human labels:
+
+```python
+public, holdout = vb.build_splits(256)                     # anti-overfit partition
+from vocencebench import calibration as cal
+report  = cal.agreement_report(cal.load_gold("labelled.jsonl"))
+weights = cal.suggest_weights(report)                      # drop dimensions at chance
 ```
 
 ## What it measures
