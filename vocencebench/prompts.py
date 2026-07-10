@@ -181,6 +181,67 @@ def naturalness(text: str, category: str = "general") -> PromptParts:
     return PromptParts(SYSTEM, _intro(header, focus, scale, text), _MID, _outro())
 
 
+# ------------------------------------------------------------------- all-traits (one call)
+def assess_all(text: str, instruction: str, traits: dict, category: str = "general") -> PromptParts:
+    """One prompt that scores BOTH clips on every requested trait AND naturalness.
+
+    Sends the two clips once and asks for all judgements in a single JSON, instead of a
+    call per trait. Cheaper; the trade-off is shorter per-trait reasoning.
+    """
+    lines = "\n".join(
+        f"  - {t}: requested \"{v}\" — {_traits.get(t).dimension}" for t, v in traits.items())
+    keys = ", ".join(f'"{t}"' for t in traits)
+    nat_dim = NATURALNESS_RUBRICS.get(category, NATURALNESS_RUBRICS["general"])[0]
+    intro = (
+        "You will score TWO clips (A and B) of the same text on several requested voice"
+        " traits, and also judge overall naturalness.\n\n"
+        f"Requested traits:\n{lines}\n\n"
+        f"Also judge naturalness: {nat_dim}.\n\n"
+        f"Text (information only): \"{text}\"\n\n"
+        + _BIAS_RULES + "\n\n"
+        "For EACH trait, score clip A and clip B from 0 (clearly wrong/opposite) to 3"
+        " (clearly and consistently correct) on how well it matches the requested value,"
+        " with 1-2 sentences of per-clip acoustic evidence citing an approximate"
+        " timestamp. Then score naturalness for each clip the same way.\n\nClip A:"
+    )
+    outro = (
+        "\nYou have now heard both clips. Output ONLY this JSON (escape quotes/newlines):\n"
+        "{\n"
+        f'  "traits": {{ each of {keys}: '
+        '{"score_a":<0-3>,"score_b":<0-3>,"reasoning_a":"<with timestamp>","reasoning_b":"<...>"} }},\n'
+        '  "naturalness": {"score_a":<0-3>,"score_b":<0-3>,"winner":"<a|b|tie>","reasoning":"<...>"}\n'
+        "}"
+    )
+    return PromptParts(SYSTEM, intro, _MID, outro)
+
+
+def _winner_from_scores(sa, sb):
+    if sa is None or sb is None:
+        return "tie"
+    return "a" if sa > sb else "b" if sb > sa else "tie"
+
+
+def parse_multi(obj: dict, trait_names) -> dict:
+    """Normalise an all-traits response into {trait: verdict-dict} + naturalness."""
+    out = {"traits": {}, "naturalness": None}
+    tr = obj.get("traits", {}) if isinstance(obj, dict) else {}
+    for t in trait_names:
+        e = tr.get(t) or {}
+        sa, sb = _as_int(e.get("score_a")), _as_int(e.get("score_b"))
+        out["traits"][t] = {
+            "score_a": sa, "score_b": sb, "winner": _winner_from_scores(sa, sb),
+            "reasoning_a": str(e.get("reasoning_a", "")), "reasoning_b": str(e.get("reasoning_b", "")),
+        }
+    n = obj.get("naturalness", {}) if isinstance(obj, dict) else {}
+    if n:
+        sa, sb = _as_int(n.get("score_a")), _as_int(n.get("score_b"))
+        w = str(n.get("winner", "")).strip().lower()
+        w = "a" if w in ("a", "1") else "b" if w in ("b", "2") else _winner_from_scores(sa, sb)
+        out["naturalness"] = {"score_a": sa, "score_b": sb, "winner": w,
+                              "reasoning": str(n.get("reasoning", ""))}
+    return out
+
+
 # ----------------------------------------------------------------------------- parsing
 def parse_verdict(obj: dict) -> dict:
     for key in ("reasoning_a", "reasoning_b", "score_a", "score_b", "winner"):

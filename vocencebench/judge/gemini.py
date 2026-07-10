@@ -31,10 +31,9 @@ class GeminiBackend:
             self._client = genai.Client(api_key=self._api_key)
         return self._client
 
-    def compare(self, parts: PromptParts, audio_a: bytes, audio_b: bytes,
-                *, temperature: float) -> Dict[str, Any]:
+    def raw(self, parts: PromptParts, audio_a: bytes, audio_b: bytes,
+            *, temperature: float) -> str:
         from google.genai import types
-
         client = self._get_client()
         contents = [
             parts.intro,
@@ -44,12 +43,15 @@ class GeminiBackend:
             parts.outro,
         ]
         config = types.GenerateContentConfig(
-            system_instruction=parts.system,
-            temperature=temperature,
+            system_instruction=parts.system, temperature=temperature,
             response_mime_type="application/json",
         )
         resp = client.models.generate_content(model=self.model, contents=contents, config=config)
-        text = resp.text or ""
+        return resp.text or ""
+
+    def compare(self, parts: PromptParts, audio_a: bytes, audio_b: bytes,
+                *, temperature: float) -> Dict[str, Any]:
+        text = self.raw(parts, audio_a, audio_b, temperature=temperature)
         obj = extract_json(text) or salvage_verdict(text)
         if obj is None:
             raise ValueError(f"Gemini judge returned no parseable JSON: {text[:200]!r}")

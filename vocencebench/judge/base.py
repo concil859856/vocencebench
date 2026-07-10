@@ -121,6 +121,32 @@ class Judge:
         value = ""  # caller may not know the requested value in generic mode
         return self.adherence(text, instruction, dimension, value, audio_a, audio_b)
 
+    def assess_all(self, text: str, instruction: str, traits: dict,
+                   audio_a: Audio, audio_b: Audio, category: str = "general") -> dict:
+        """One judge call scoring BOTH clips on every trait AND naturalness (no swap).
+
+        Returns ``{"traits": {trait: Verdict}, "naturalness": Verdict}``. ~1 call per
+        duel instead of one per trait — the cost-optimised path.
+        """
+        from vocencebench.prompts import assess_all, parse_multi
+        from vocencebench.audio import to_wav_bytes
+        parts = assess_all(text, instruction, traits, category)
+        raw = self.backend.raw(parts, to_wav_bytes(audio_a), to_wav_bytes(audio_b),
+                               temperature=self.temperature)
+        obj = extract_json(raw) or {}
+        parsed = parse_multi(obj, list(traits))
+        out = {"traits": {}, "naturalness": None}
+        for t, e in parsed["traits"].items():
+            out["traits"][t] = Verdict(dimension=t, winner=e["winner"], score_a=e["score_a"],
+                                       score_b=e["score_b"], reasoning_a=e["reasoning_a"],
+                                       reasoning_b=e["reasoning_b"], consistent=True)
+        n = parsed["naturalness"]
+        if n:
+            out["naturalness"] = Verdict(dimension="naturalness", winner=n["winner"],
+                                         score_a=n["score_a"], score_b=n["score_b"],
+                                         reasoning=n["reasoning"], consistent=True)
+        return out
+
     # -- core --------------------------------------------------------------------
     def _compare(self, parts: PromptParts, dimension: str, audio_a: Audio, audio_b: Audio) -> Verdict:
         from vocencebench.audio import to_wav_bytes

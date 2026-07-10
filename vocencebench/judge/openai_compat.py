@@ -39,19 +39,19 @@ class OpenAICompatBackend:
             ]},
         ]
 
-    def compare(self, parts: PromptParts, audio_a: bytes, audio_b: bytes,
-                *, temperature: float) -> Dict[str, Any]:
+    def raw(self, parts: PromptParts, audio_a: bytes, audio_b: bytes,
+            *, temperature: float, max_tokens: int = 2000) -> str:
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
-        payload = {
-            "model": self.model,
-            "messages": self._messages(parts, audio_a, audio_b),
-            "temperature": temperature,
-            "max_tokens": 2000,
-        }
+        payload = {"model": self.model, "messages": self._messages(parts, audio_a, audio_b),
+                   "temperature": temperature, "max_tokens": max_tokens}
         with httpx.Client(base_url=self.base_url, timeout=self.timeout, headers=headers) as c:
             r = c.post("/v1/chat/completions", json=payload)
             r.raise_for_status()
-            content = r.json()["choices"][0]["message"]["content"]
+            return r.json()["choices"][0]["message"]["content"]
+
+    def compare(self, parts: PromptParts, audio_a: bytes, audio_b: bytes,
+                *, temperature: float) -> Dict[str, Any]:
+        content = self.raw(parts, audio_a, audio_b, temperature=temperature)
         obj = extract_json(content) or salvage_verdict(content)
         if obj is None:
             raise ValueError(f"judge returned no parseable JSON: {content[:200]!r}")
