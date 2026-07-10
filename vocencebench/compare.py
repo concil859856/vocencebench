@@ -85,7 +85,7 @@ def compare_models(
 
         for trait, value in s.traits.items():
             probe = probe_by_trait.get(trait)
-            if probe is not None:  # objective: score BOTH models absolutely
+            if probe is not None:  # objective: measure each model's match absolutely
                 ra = probe.score(s, wav_a)
                 rb = probe.score(s, wav_b)
                 if ra is not None:
@@ -93,13 +93,21 @@ def compare_models(
                 if rb is not None:
                     obj_b[trait].append(rb.score)
                 rec["objective"].append({"trait": trait, "requested": value,
-                    "a": _pr(ra), "b": _pr(rb)})
-            else:  # holistic: judge pairwise
+                    "a": _pr(ra), "b": _pr(rb), "judged": False})
+            else:  # holistic: judge scores EACH clip's match absolutely (both can pass)
                 v = judge.adherence(s.text, s.instruction, trait, value, wav_a, wav_b)
-                pair[trait].append(_wv(v))
-                rec["pairwise"].append(_vd(f"adherence:{trait}", v))
+                if v.score_a is not None:
+                    obj_a[trait].append(v.score_a / 3.0)
+                if v.score_b is not None:
+                    obj_b[trait].append(v.score_b / 3.0)
+                rec["objective"].append({"trait": trait, "requested": value, "judged": True,
+                    "a": {"score": None if v.score_a is None else v.score_a / 3.0,
+                          "measured": None, "reasoning": v.reasoning_a},
+                    "b": {"score": None if v.score_b is None else v.score_b / 3.0,
+                          "measured": None, "reasoning": v.reasoning_b},
+                    "comparison": v.reasoning})
 
-        if score_naturalness:
+        if score_naturalness:  # the only "which is better" question
             v = judge.naturalness(s.text, wav_a, wav_b, category=s.category)
             pair["naturalness"].append(_wv(v))
             rec["pairwise"].append(_vd("naturalness", v))
