@@ -12,7 +12,7 @@ from typing import Any, Dict
 
 import httpx
 
-from vocencebench.judge.base import extract_json
+from vocencebench.judge.base import extract_json, salvage_verdict
 from vocencebench.prompts import PromptParts, parse_verdict
 
 
@@ -46,13 +46,13 @@ class OpenAICompatBackend:
             "model": self.model,
             "messages": self._messages(parts, audio_a, audio_b),
             "temperature": temperature,
-            "max_tokens": 1400,
+            "max_tokens": 2000,
         }
         with httpx.Client(base_url=self.base_url, timeout=self.timeout, headers=headers) as c:
             r = c.post("/v1/chat/completions", json=payload)
             r.raise_for_status()
             content = r.json()["choices"][0]["message"]["content"]
-        obj = extract_json(content)
+        obj = extract_json(content) or salvage_verdict(content)
         if obj is None:
             raise ValueError(f"judge returned no parseable JSON: {content[:200]!r}")
         out = parse_verdict(obj)

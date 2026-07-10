@@ -33,18 +33,44 @@ def extract_json(raw: str) -> Optional[dict]:
     """Best-effort JSON object extraction from a model's text response."""
     if not raw:
         return None
+    # Strip a leading ```json / ``` fence if present.
+    s = raw.strip()
+    if s.startswith("```"):
+        s = re.sub(r"^```[a-zA-Z]*\n?", "", s).rstrip("`").strip()
     try:
-        return json.loads(raw)
+        return json.loads(s)
     except Exception:
         pass
-    # Strip code fences and grab the outermost {...}.
-    m = re.search(r"\{.*\}", raw, re.DOTALL)
+    # Grab the outermost {...}.
+    m = re.search(r"\{.*\}", s, re.DOTALL)
     if m:
         try:
             return json.loads(m.group(0))
         except Exception:
             return None
     return None
+
+
+def salvage_verdict(raw: str) -> Optional[dict]:
+    """Recover a verdict from a truncated/malformed response by regex.
+
+    Verbose judges sometimes overrun the token budget mid-JSON; as long as the winner
+    (and ideally the scores) were emitted, we keep a usable decision instead of dropping
+    the whole comparison.
+    """
+    if not raw:
+        return None
+    w = re.search(r'"winner"\s*:\s*"?(a|b|tie|1|2|0)"?', raw, re.IGNORECASE)
+    if not w:
+        return None
+    sa = re.search(r'"score_a"\s*:\s*(\d)', raw)
+    sb = re.search(r'"score_b"\s*:\s*(\d)', raw)
+    return {
+        "winner": w.group(1), "reasoning_a": "", "reasoning_b": "",
+        "comparison": raw[:400], "confidence": 0.0,
+        "score_a": int(sa.group(1)) if sa else None,
+        "score_b": int(sb.group(1)) if sb else None,
+    }
 
 
 def _flip(winner: str) -> str:

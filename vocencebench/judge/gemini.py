@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, Optional
 
-from vocencebench.judge.base import extract_json
+from vocencebench.judge.base import extract_json, salvage_verdict
 from vocencebench.prompts import PromptParts, parse_verdict
 
 
@@ -50,7 +50,7 @@ class GeminiBackend:
         )
         resp = client.models.generate_content(model=self.model, contents=contents, config=config)
         text = resp.text or ""
-        obj = extract_json(text)
+        obj = extract_json(text) or salvage_verdict(text)
         if obj is None:
             raise ValueError(f"Gemini judge returned no parseable JSON: {text[:200]!r}")
         out = parse_verdict(obj)
