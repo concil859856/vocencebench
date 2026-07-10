@@ -67,8 +67,15 @@ def compare_models(
     probes: Optional[Sequence] = None,
     labels: tuple = ("model_a", "model_b"),
     score_naturalness: bool = True,
+    explain: bool = False,
     on_audio: Optional[Callable[[str, bytes, bytes], None]] = None,
 ) -> Head2Head:
+    """Compare two models symmetrically.
+
+    ``explain=True`` also runs the audio-LLM judge on the objective (probe) traits to
+    attach a detailed reasoning for each — the probe keeps the objective score, the judge
+    supplies the "why". Costs one judge call per objective trait per sample.
+    """
     probe_by_trait = {p.trait: p for p in (probes or [])}
     obj_a: Dict[str, List[float]] = defaultdict(list)
     obj_b: Dict[str, List[float]] = defaultdict(list)
@@ -92,8 +99,16 @@ def compare_models(
                     obj_a[trait].append(ra.score)
                 if rb is not None:
                     obj_b[trait].append(rb.score)
-                rec["objective"].append({"trait": trait, "requested": value,
-                    "a": _pr(ra), "b": _pr(rb), "judged": False})
+                entry = {"trait": trait, "requested": value,
+                         "a": _pr(ra), "b": _pr(rb), "judged": False}
+                if explain:  # probe = score, judge = reasoning
+                    v = judge.adherence(s.text, s.instruction, trait, value, wav_a, wav_b)
+                    if entry["a"] is not None:
+                        entry["a"]["reasoning"] = v.reasoning_a
+                    if entry["b"] is not None:
+                        entry["b"]["reasoning"] = v.reasoning_b
+                    entry["comparison"] = v.reasoning
+                rec["objective"].append(entry)
             else:  # holistic: judge scores EACH clip's match absolutely (both can pass)
                 v = judge.adherence(s.text, s.instruction, trait, value, wav_a, wav_b)
                 if v.score_a is not None:
