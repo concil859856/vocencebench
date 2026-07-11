@@ -2,21 +2,23 @@
 
 # 🎙️ vocencebench
 
-### A reproducible, gaming-resistant benchmark for prompt-controllable text-to-speech
+**A reproducible, gaming-resistant benchmark for prompt-controllable text-to-speech**
 
 <p>
-  <img alt="License" src="https://img.shields.io/badge/license-MIT-2563eb?style=flat-square">
-  <img alt="Python" src="https://img.shields.io/badge/python-3.10+-2563eb?style=flat-square&logo=python&logoColor=white">
-  <img alt="Judge" src="https://img.shields.io/badge/judge-audio--LLM-7c3aed?style=flat-square">
-  <img alt="Scoring" src="https://img.shields.io/badge/scoring-deterministic-059669?style=flat-square">
-  <img alt="Status" src="https://img.shields.io/badge/status-research_preview-f59e0b?style=flat-square">
+  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-2563eb?style=flat-square">
+  <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-2563eb?style=flat-square&logo=python&logoColor=white">
+  <img alt="Judge: audio-LLM" src="https://img.shields.io/badge/judge-audio--LLM-7c3aed?style=flat-square">
+  <img alt="Corpus: 496 items, hash-pinned" src="https://img.shields.io/badge/corpus-496_items_·_sha256--pinned-0891b2?style=flat-square">
+  <img alt="Scoring: deterministic" src="https://img.shields.io/badge/scoring-deterministic-059669?style=flat-square">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-26_passing-059669?style=flat-square">
 </p>
 
 <p>
   <a href="#-install"><b>Install</b></a> ·
   <a href="#-quickstart"><b>Quickstart</b></a> ·
   <a href="#-the-pipeline"><b>Pipeline</b></a> ·
-  <a href="docs/methodology.md"><b>Methodology</b></a> ·
+  <a href="#-scoring-model"><b>Scoring model</b></a> ·
+  <a href="#-benchmark-corpus"><b>Corpus</b></a> ·
   <a href="#-documentation"><b>Docs</b></a>
 </p>
 
@@ -24,70 +26,103 @@
 
 ---
 
-Prompt-controllable text-to-speech (**PromptTTS**) synthesises speech from two inputs — a
-script to read and a natural-language *voice instruction* ("a calm elderly British man,
-speaking slowly and warmly"). Evaluating it means answering two orthogonal questions at
-once — **does the voice match what was requested**, and **is the delivery natural and
-intelligible** — then collapsing many heterogeneous sub-scores into one defensible verdict.
+## Why this exists
 
-`vocencebench` does this with deterministic signal-processing **probes** where a trait is
-measurable, an order-swapped **audio-LLM judge** where it is holistic, an ASR
-**intelligibility gate**, and a **non-compensatory aggregation** guarded by a **paired
-bootstrap confidence bound**.
+Prompt-controllable text-to-speech (**PromptTTS**) synthesises speech from *two* inputs: a
+**script** to read and a natural-language **voice instruction** —
+
+> *"I need a voice for a 70-year-old Canadian man who is speaking in a quiet, low-pitched
+> rumble. He should sound undeniably sad and speak quite slowly, yet maintain a remarkably
+> warm tone despite his heartache."*
+
+Evaluating such a system means answering two orthogonal questions at once:
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**🎯 Trait adherence**
+*Did the model produce the voice that was requested?* Age, gender, emotion, accent, tone,
+pitch, loudness, pace — each an absolute "does the clip match" judgement where **both**
+systems under comparison can simultaneously be right.
+
+</td>
+<td width="50%" valign="top">
+
+**🌊 Naturalness**
+*Is the delivery realistic, expressive, and intelligible* — especially on hard text
+(numbers, dates, URLs, nested clauses, tongue-twisters)? Inherently a **pairwise
+preference**: which of the two clips sounds better.
+
+</td>
+</tr>
+</table>
+
+…and then collapsing these heterogeneous sub-scores into **one defensible verdict**. Doing
+that naïvely fails in well-known ways: a binary win/lose metric swamps graded ones in any
+weighted sum; an arithmetic mean lets excellence in one trait *buy back* total failure in
+another; and a point-estimate comparison crowns winners on pure noise.
+
+`vocencebench` is engineered against all three failure modes.
 
 > [!NOTE]
-> The result is a ranking that is **reproducible** (same inputs → same verdict, bit-for-bit),
-> **hard to game** (no single dimension can dominate or be traded away), and **statistically
-> honest** (a winner is declared only when the improvement is both real and audible).
+> **The contract:** same inputs → same verdict, bit-for-bit, on any machine. No single
+> dimension can dominate or be traded away. A winner is declared only when its advantage is
+> statistically real **and** perceptually audible — otherwise the result is an honest tie.
 
 ## ✨ Design principles
 
-|   | Principle | What it means |
-|---|-----------|---------------|
-| **①** | **Two numbers before one** | Adherence and naturalness are measured separately, fused only at the final decision. A model that nails the voice but reads flatly cannot hide, and neither can the reverse. |
-| **②** | **Measure, don't guess** | Every objective trait (pace, pitch, loudness, gender, emotion, accent, age) is read from the signal by a deterministic probe — identical across runs and machines. The judge is reserved for what needs an ear. |
-| **③** | **Non-compensatory by construction** | Sub-scores combine with a *geometric* mean: a near-zero in any dimension collapses the whole sample. No weight to over-optimise, no dimension to trade away. |
-| **④** | **No hidden humans, no hidden weights** | The headline ranking uses fixed, equal weights and a fixed seed — no human labelling, no per-run tuning. Any evaluator recomputes the identical number. |
-| **⑤** | **Declare winners conservatively** | A challenger is crowned only when the lower bound of a paired bootstrap on its advantage clears a margin scaled to human just-noticeable difference. Otherwise: an honest tie. |
+|   | Principle | What it means in practice |
+|---|-----------|---------------------------|
+| **①** | **Two numbers before one** | Adherence and naturalness are measured separately and fused only at the final decision. A model that nails the voice but reads flatly cannot hide — and neither can the reverse. |
+| **②** | **Measure, don't guess** | Every objective trait is read from the waveform by a deterministic probe — identical across runs and machines, free per call, with intermediate features exposed for audit. The audio-LLM judge is reserved for what genuinely needs an ear. |
+| **③** | **Non-compensatory by construction** | Sub-scores combine through a *geometric* mean: any near-zero dimension collapses the whole sample. There is no weight to over-optimise and no dimension to trade away. |
+| **④** | **No hidden humans, no hidden weights** | The headline ranking uses fixed equal weights and a fixed random seed. No human labelling, no per-run tuning — any evaluator recomputes the identical number from the public per-dimension scores. |
+| **⑤** | **Winners are earned, not observed** | A challenger is crowned only when the *lower confidence bound* of a paired bootstrap on its advantage clears a margin grounded in human just-noticeable difference. |
 
 ## 📦 Install
 
 ```bash
-pip install vocencebench                 # core — schema, aggregation, decision
-pip install "vocencebench[probes]"       # + acoustic & classifier probes  (librosa, torch)
+pip install vocencebench                 # core — schema, aggregation, decision rule
+pip install "vocencebench[probes]"       # + acoustic & classifier probes   (librosa, torch)
 pip install "vocencebench[gemini]"       # + hosted audio-LLM judge backend
 pip install "vocencebench[all]"          # everything, incl. CLI
 ```
 
 ## 🚀 Quickstart
 
+End-to-end: synthesise → gate → probe → judge → aggregate → decide, in one call.
+
 ```python
 import vocencebench as vb
+from vocencebench.adapters import Qwen3TTSAdapter
 
-# 1 · A judge that reasons over raw audio — hosted, or any local OpenAI-compatible endpoint.
+# 1 · A judge that reasons over raw audio — hosted, or any OpenAI-compatible endpoint.
 judge = vb.Judge.gemini(model="gemini-3.1-pro-preview")
 # judge = vb.Judge.local(base_url="http://localhost:8003", model="Qwen/Qwen2.5-Omni-7B")
 
-# 2 · Two PromptTTS models to compare, each a callable (text, instruction) -> wav bytes.
-from vocencebench.adapters import Qwen3TTSAdapter
+# 2 · Two PromptTTS systems, each a callable  (text, instruction) -> wav bytes.
 model_a = Qwen3TTSAdapter("/path/to/checkpoint_a")
 model_b = Qwen3TTSAdapter("/path/to/checkpoint_b")
 
-# 3 · One call: synthesise, probe, judge, aggregate, and decide a winner.
+# 3 · Benchmark on the frozen, hash-pinned corpus.
 h2h = vb.benchmark(
-    vb.load_benchmark("benchmark_v1"),           # frozen, hash-pinned corpus
+    vb.load_benchmark("benchmark_v1"),        # 496 multi-trait items, sha256-pinned
     model_a, model_b, judge,
-    probes=vb.with_classifiers(),                # acoustic + gender/emotion/accent/age
-    transcriber=vb.whisper_transcriber(),        # enables the intelligibility gate
+    probes=vb.with_classifiers(),             # acoustic + gender/emotion/accent/age
+    transcriber=vb.whisper_transcriber(),     # enables the WER intelligibility gate
     labels=("model_a", "model_b"),
 )
 
-print(h2h.summary())
-print(h2h.decision.winner, "—", h2h.decision.reason)
+print(h2h.summary())                          # per-trait scores, naturalness, verdict
+print(h2h.decision.winner)                    # "model_b"  — or "tie"
+print(h2h.decision.reason)                    # the full audit trail of the decision
 ```
 
 <details>
-<summary><b>A single pairwise comparison</b>, when that is all you need</summary>
+<summary><b>🔍 A single pairwise comparison</b> — when that is all you need</summary>
+
+<br>
 
 ```python
 verdict = judge.compare(
@@ -95,10 +130,25 @@ verdict = judge.compare(
     instruction="a calm elderly British man, speaking slowly and warmly",
     audio_a=open("a.wav", "rb").read(),
     audio_b=open("b.wav", "rb").read(),
-    dimension="tone",                            # any trait, or "naturalness"
+    dimension="tone",                          # any registered trait, or "naturalness"
 )
-print(verdict.winner, verdict.score_a, verdict.score_b, verdict.reasoning_a)
+print(verdict.winner)          # "a" | "b" | "tie"
+print(verdict.score_a)         # absolute 0–3 rubric score for clip A
+print(verdict.reasoning_a)     # the judge's per-clip analysis — every verdict is auditable
 ```
+
+</details>
+
+<details>
+<summary><b>💰 Judge economics</b> — why evaluation stays cheap</summary>
+
+<br>
+
+Seven of the eight traits are **objective** and scored by free, deterministic probes; only
+holistic adherence (`tone`) and naturalness need the judge. The combined mode
+(`all_at_once=True`) scores every judged dimension in **one** audio upload per duel, and
+the hosted backend tracks exact token usage (`judge.backend.usage`) and spend
+(`judge.backend.cost_usd()`) from the provider's own accounting — measured, not estimated.
 
 </details>
 
@@ -128,28 +178,104 @@ flowchart TD
     class W,T out;
 ```
 
-Every judged comparison can run in **both audio orders** (kept only when they agree), and
-the judge can be sampled `k` times and majority-voted — the standard defences against
-position bias and run-to-run noise. Full derivation in
-**[docs/methodology.md](docs/methodology.md)**.
+## 🧮 Scoring model
+
+The full derivation lives in **[docs/methodology.md](docs/methodology.md)**; this is the
+five-step skeleton. All defaults are frozen constants — there are no free parameters at
+ranking time.
+
+**Step 1 — Desirability normalisation.** Every sub-score is mapped to a common
+desirability scale $d \in [0,1]$ *before* any combination, so no dimension enjoys a range
+advantage:
+
+| Dimension | Raw measurement | → desirability |
+|-----------|-----------------|----------------|
+| ordinal probe (pace · pitch · loudness) | bucket | $1.0$ exact · $0.5$ adjacent · $0$ else |
+| categorical probe (gender · emotion · accent) | label | $1.0$ match · $0$ mismatch |
+| numeric probe (age, tolerance $\tau_a{=}8$ yr) | years $m$ vs requested $r$ | $\max\!\big(0,\, 1 - \tfrac{\max(0,\,\lvert m-r\rvert - \tau_a)}{\tau_a}\big)$ |
+| judge (tone · naturalness) | 0–3 rubric | $\text{score}/3$ |
+
+**Step 2 — Non-compensatory per-sample composite.** For one clip with desirabilities
+$d_1 \dots d_k$ and intelligibility gate $g \in \{0,1\}$:
+
+$$
+S \;=\; g \cdot \exp\!\left( \frac{\sum_j w_j \,\ln \max(d_j,\, \varepsilon)}{\sum_j w_j} \right),
+\qquad w_j = 1,\;\; \varepsilon = 0.01
+$$
+
+The geometric mean is a product in disguise: one near-zero dimension drags the whole
+sample down, and nothing elsewhere buys it back. Concretely, eight perfect traits plus one
+at $0.05$:
+
+```
+arithmetic mean :  (8·1.0 + 0.05) / 9      = 0.894    ← failure nearly invisible
+geometric  mean :  (1.0⁸ · 0.05)^(1/9)     = 0.717    ← failure clearly penalised
+```
+
+**Step 3 — Intelligibility gate.** Each clip is transcribed (Whisper) and scored by
+word-error-rate against the script. $\text{WER} > \tau$ (default $\tau = 0.15$) sets
+$g = 0$: the sample composite is zeroed outright. Pretty audio that says the wrong words is
+worth nothing.
+
+**Step 4 — Paired bootstrap lower confidence bound.** Both systems read the *same* items,
+so per-sample paired differences $\delta_i = S_B(i) - S_A(i)$ cancel item-difficulty
+variance. The mean of $\delta$ is bootstrapped ($N = 2000$ resamples, fixed seed
+$3151662$) and the **5th percentile** taken as a one-sided 95% lower confidence bound —
+"even under a pessimistic reading of the evidence, does the challenger still lead?"
+
+**Step 5 — Dynamic decision margin.** The LCB must clear a bar that rises as the incumbent
+approaches saturation:
+
+$$
+\text{margin}(S_\text{inc}) \;=\; \max\big(\,0.015,\;\; 0.10 \cdot (1 - S_\text{inc})\,\big)
+$$
+
+The floor of $0.015$ sits just below the human just-noticeable difference on
+comparison-MOS scales (${\approx}\,0.1$ CMOS ${\approx}\,0.017$ on $[0,1]$) — a "win" never
+rests on an inaudible gap.
+
+$$
+\textbf{winner} =
+\begin{cases}
+\text{challenger} & \text{if } \operatorname{LCB}(\text{challenger} - \text{incumbent}) > \text{margin}(S_\text{inc})\\[2pt]
+\text{tie} & \text{otherwise}
+\end{cases}
+$$
+
+### 🛡️ Why this resists gaming
+
+| Attack | Defence |
+|--------|---------|
+| Over-optimise one loud dimension | desirability normalisation — all dimensions share $[0,1]$; the geometric mean grants no leverage |
+| Ignore a hard trait, compensate with an easy one | non-compensatory product — any near-zero collapses the sample |
+| Emit beautiful audio that says the wrong words | WER gate zeroes the sample, outside the mean, beyond rescue |
+| Win by a hair on a lucky draw | paired bootstrap LCB + JND-grounded margin demand a real, audible, repeatable lead |
+| Quietly re-tune the aggregation | equal weights, fixed seed, closed-form margin — nothing to tune |
 
 ## 📊 What it measures
 
 | Axis | Method | Per-clip output | Determinism |
 |------|--------|:---------------:|:-----------:|
-| **Adherence** — objective traits | DSP / classifier **probe** on the waveform | desirability&nbsp;∈&nbsp;[0,1] | 🟢 exact |
-| **Adherence** — holistic (`tone`) | order-swapped **audio-LLM judge**, 0–3 rubric | desirability&nbsp;∈&nbsp;[0,1] | 🟡 version-pinned |
-| **Naturalness** / quality | pairwise **audio-LLM judge**, per-category rubric | desirability&nbsp;∈&nbsp;[0,1] | 🟡 version-pinned |
-| **Intelligibility** | ASR (Whisper) **word-error-rate** | hard gate&nbsp;{0,1} | 🟢 exact |
+| **Adherence** — objective traits | DSP / classifier **probe** on the waveform | $d \in [0,1]$ | 🟢 exact |
+| **Adherence** — holistic (`tone`) | order-swapped **audio-LLM judge**, 0–3 rubric | $d \in [0,1]$ | 🟡 version-pinned |
+| **Naturalness** / quality | pairwise **audio-LLM judge**, per-category rubric | $d \in [0,1]$ | 🟡 version-pinned |
+| **Intelligibility** | ASR (Whisper) **word-error-rate** | gate $\{0,1\}$ | 🟢 exact |
+
+Every judged comparison can run in **both audio orders** — kept only when the orders agree
+(`consistent=True`), which neutralises position bias, the dominant LLM-judge failure mode —
+and the judge can be sampled `k` times and majority-voted (`votes=k`) to bound sampling
+noise.
 
 ## 🎛️ Trait vocabulary
 
-Eight controllable attributes, defined once in **[`traits.py`](vocencebench/traits.py)**:
+Eight controllable attributes · 39 reference levels · defined once in
+**[`traits.py`](vocencebench/traits.py)** — probes, rubrics, corpus, and aggregation all
+read this single registry, so adding a trait is a one-place change.
 
 | Trait | Kind | Values |
 |-------|------|--------|
 | `gender` | objective | male · female |
-| `age` | objective · numeric&nbsp;(±8&nbsp;yr) | 8 · 13 · 20 · 30 · 45 · 60 · 78 |
+| `age` | objective · numeric (±8 yr) | 8 · 13 · 20 · 30 · 45 · 60 · 78 |
 | `pace` | objective · ordinal | slow · moderate · fast |
 | `pitch` | objective · ordinal | low · medium · high |
 | `loudness` | objective · ordinal | quiet · normal · loud |
@@ -157,41 +283,102 @@ Eight controllable attributes, defined once in **[`traits.py`](vocencebench/trai
 | `accent` | objective | American · British · Australian · Indian · Canadian |
 | `tone` | holistic | warm · authoritative · playful · serious · soothing · cheerful · sarcastic · formal |
 
-See **[docs/traits.md](docs/traits.md)** for ordinal partial-credit, numeric tolerance, and objective-vs-holistic routing.
+## 🧊 Benchmark corpus
+
+The shipped corpus — [`benchmark_v1.jsonl`](vocencebench/datasets/benchmark_v1.jsonl),
+**496 items, SHA-256-pinned** — consists of *fully-specified* voices: every item fixes all
+eight traits at once, both as structured fields and woven into one natural instruction, so
+**every clip is scored on every trait**.
+
+```jsonc
+{
+  "id": "vb-00001",
+  "instruction": "Generate a voice for a playful twenty-year-old woman with an Indian accent
+                  who is loudly expressing her surprise. Her voice should have a high pitch
+                  and maintain a steady, moderate pacing.",
+  "text": "Oh my gosh, you actually brought the puppy to the dorm room? I completely
+           thought you were joking!",
+  "traits": { "age": "20", "gender": "female", "emotion": "surprised", "pitch": "high",
+              "loudness": "loud", "pace": "moderate", "accent": "Indian", "tone": "playful" },
+  "difficulty": 1
+}
+```
+
+**Three invariants** hold for every item: ① all eight traits present as fields, ② the
+instruction and the fields never disagree, ③ the script *suits* the persona but never
+names a trait in words — the trait must be realised in how the clip is spoken, or it does
+not count.
+
+**Difficulty tiers** stress intelligibility as well as control — `easy` (short everyday
+sentence) · `normal` (moderate length) · `hard` (tongue-twisters, dense
+numbers/dates/currency/URLs, nested clauses) at a fixed 0.35/0.40/0.25 mix. Trait values
+are assigned by a **seeded balanced-deck sampler**, so coverage is near-uniform (~100 items
+per accent, ~62 per emotion and tone, ages 8→78) while combinations stay uncorrelated.
+
+Because LLM wording is stochastic, **the frozen file — not the generator — is the
+artifact**: the `.jsonl` and its `.sha256` are committed together, and `corpus_hash()`
+must reproduce the pin on load. A deterministic held-out split (`split_holdout`) keeps a
+private partition so systems cannot be tuned against the public set. Full details in
+**[docs/corpus.md](docs/corpus.md)**.
+
+## ⚖️ The judge, briefly
+
+- **Protocol** — the judge hears both clips interleaved with a rubric and must reason about
+  each clip independently *before* comparing, returning strict JSON with per-clip 0–3
+  scores, per-clip reasoning, winner, and confidence.
+- **Reliability** — order-swap consistency, vote@k majority, bias rules in the prompt
+  (ignore recording quality and base timbre; don't reward exaggeration), blinding to system
+  identity, temperature 0.
+- **Backends** — hosted (`Judge.gemini(...)`) or any local OpenAI-compatible audio endpoint
+  (`Judge.local(base_url=..., model=...)`, e.g. Qwen2.5-Omni on vLLM). **One config change**
+  swaps between them; same rubrics, same verdict schema.
+
+Full treatment in **[docs/judge.md](docs/judge.md)**.
 
 ## 🔁 Reproducibility
 
 > [!IMPORTANT]
-> Given the same inputs, **every evaluator computes the identical ranking**. That is a hard
-> requirement for a benchmark whose scores carry weight — not a nice-to-have.
+> Given the same inputs, **every evaluator computes the identical ranking.** For a
+> benchmark whose scores carry weight, this is a hard requirement — not a nice-to-have.
 
-- 🧊 The corpus is generated once, **frozen to JSONL, and pinned by SHA-256** — the frozen file, not the stochastic generator, is the artifact.
-- 🧮 Objective probes are **pure functions of the waveform**; the bootstrap runs under a **fixed seed**.
-- 📌 The judge runs at **temperature 0** with **model + prompt version logged**; scores compare only within a version boundary.
-- 🔒 A deterministic **held-out split** keeps a private partition so models cannot be tuned against the public set.
+| Stage | Guarantee | Mechanism |
+|-------|-----------|-----------|
+| Corpus | identical items for all | frozen JSONL + SHA-256 pin |
+| Probes | identical scores everywhere | pure functions of the waveform |
+| Aggregation | identical composites | equal weights, closed-form geometric mean × gate |
+| Bootstrap | identical confidence bound | fixed seed 3151662 · N = 2000 · α = 0.05 |
+| Margin | identical threshold | closed form, no free parameters |
+| Verdict | recomputable by third parties | pure function of published per-sample scores |
 
-Details in **[docs/reproducibility.md](docs/reproducibility.md)**.
+The judge is the one stochastic component; it is confined to a minority of dimensions, run
+at temperature 0 with model + prompt versions logged, and its residual noise is absorbed by
+the LCB. Details in **[docs/reproducibility.md](docs/reproducibility.md)**.
 
 ## 🗂️ Repository layout
 
 <details>
-<summary>Module map</summary>
+<summary><b>Module map</b></summary>
+
+<br>
 
 ```
 vocencebench/
-├── traits.py          canonical trait registry (one place to add a trait)
-├── schema.py          Sample / Verdict / ProbeResult / report data structures
+├── traits.py          canonical trait registry — one place to add a trait
+├── schema.py          Sample · Verdict · ProbeResult · report structures
 ├── corpus_llm.py      multi-trait corpus generator → freeze + hash-pin
-├── probes/            deterministic trait probes (acoustic + classifier + age)
-├── judge/             audio-LLM judge: order-swap, vote@k, backends
-├── prompts.py         judge rubrics and strict-JSON verdict schema
-├── pair.py            evaluate one pair of clips on all traits + naturalness
-├── compare.py         symmetric head-to-head over a dataset (compare_models, benchmark)
-├── decide.py          the aggregation: geometric composite → gate → LCB → margin
-├── metrics.py         win-rate, control-success, confusion, bootstrap CI
+├── corpus.py          deterministic template corpus (offline / CI)
+├── probes/            deterministic probes — acoustic · classifier · age regression
+├── judge/             audio-LLM judge — order-swap · vote@k · backends
+├── prompts.py         judge rubrics + strict-JSON verdict schema
+├── pair.py            one pair of clips → all traits + naturalness + gate
+├── compare.py         symmetric head-to-head → Head2Head  (compare_models · benchmark)
+├── decide.py          geometric composite → gate → paired LCB → margin → verdict
+├── metrics.py         win-rate · control-success · confusion · bootstrap CI
 ├── transcribe.py      ASR transcriber for the intelligibility gate
-├── adapters.py        wrap any TTS model as (text, instruction) → wav
-└── cli.py             command-line interface
+├── adapters.py        any TTS model → (text, instruction) → wav bytes
+├── calibration.py     optional judge-vs-human validation (diagnostic only)
+├── cli.py             command-line interface
+└── datasets/          benchmark_v1.jsonl + benchmark_v1.sha256
 ```
 
 </details>
@@ -200,20 +387,17 @@ vocencebench/
 
 | Document | Contents |
 |----------|----------|
-| **[methodology.md](docs/methodology.md)** | The aggregation in full — desirability → geometric mean → gate → paired bootstrap LCB → dynamic margin. **Start here.** |
-| [traits.md](docs/traits.md) | Trait registry: kinds, values, ordinal / numeric scoring. |
-| [corpus.md](docs/corpus.md) | Corpus generation, dataset schema, freezing, held-out splits. |
-| [probes.md](docs/probes.md) | Deterministic probes: acoustic formulas, classifiers, age regression. |
-| [judge.md](docs/judge.md) | The audio-LLM judge: protocol, reliability engineering, backends, cost. |
-| [adapters.md](docs/adapters.md) | Wrapping TTS models for evaluation. |
-| [cli.md](docs/cli.md) | Command-line reference. |
-| [reproducibility.md](docs/reproducibility.md) | Determinism guarantees and how to preserve them. |
-| [validation.md](docs/validation.md) | *Optional* judge validation against human labels (diagnostic only). |
+| **[methodology.md](docs/methodology.md)** | The aggregation in full: desirability → geometric mean → gate → paired bootstrap LCB → dynamic margin. **Start here.** |
+| [traits.md](docs/traits.md) | Trait registry — kinds, values, ordinal / numeric scoring |
+| [corpus.md](docs/corpus.md) | Corpus generation, dataset schema, freezing, held-out splits |
+| [probes.md](docs/probes.md) | Deterministic probes — acoustic formulas, classifiers, age regression |
+| [judge.md](docs/judge.md) | The audio-LLM judge — protocol, reliability engineering, backends, cost |
+| [adapters.md](docs/adapters.md) | Wrapping TTS models for evaluation |
+| [cli.md](docs/cli.md) | Command-line reference |
+| [reproducibility.md](docs/reproducibility.md) | Determinism guarantees and how to preserve them |
+| [validation.md](docs/validation.md) | *Optional* judge validation against human labels (diagnostic only) |
 
 ## 📖 Citation
-
-<details>
-<summary>BibTeX</summary>
 
 ```bibtex
 @software{vocencebench,
@@ -225,8 +409,13 @@ vocencebench/
 }
 ```
 
-</details>
-
 ## ⚖️ License
 
 Released under the **MIT License** — see [LICENSE](LICENSE).
+
+---
+
+<div align="center">
+<sub>Built for rigorous, adversarial-grade PromptTTS evaluation — where a benchmark must be
+right even when someone is paid to prove it wrong.</sub>
+</div>
