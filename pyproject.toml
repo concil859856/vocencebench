@@ -1,6 +1,6 @@
 [project]
 name = "vocencebench"
-version = "0.1.0"
+version = "0.1.1"
 description = "Prompt-driven text-to-speech evaluation: trait adherence and naturalness, scored by an audio-LLM judge."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -26,6 +26,12 @@ all = [
     "librosa>=0.10", "torch>=2.1", "transformers>=4.40",
     "google-genai>=0.3", "click>=8.1", "rich>=13.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/vocence-78/vocencebench"
+Repository = "https://github.com/vocence-78/vocencebench"
+Issues = "https://github.com/vocence-78/vocencebench/issues"
+Changelog = "https://github.com/vocence-78/vocencebench/releases"
 
 [project.scripts]
 vocencebench = "vocencebench.cli:main"
