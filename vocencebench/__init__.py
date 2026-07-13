@@ -23,7 +23,7 @@ from vocencebench.judge import Judge
 from vocencebench.pair import PairResult, TraitEval, evaluate_pair
 from vocencebench.probes import default_probes, with_classifiers
 from vocencebench.runner import evaluate
-from vocencebench.transcribe import whisper_transcriber
+from vocencebench.transcribe import gemini_transcriber, whisper_transcriber
 from vocencebench.schema import (
     EvalReport, ProbeResult, Sample, SampleResult, Verdict,
     load_dataset, save_dataset,
@@ -47,6 +47,7 @@ __all__ = [
     "default_probes",
     "with_classifiers",
     "whisper_transcriber",
+    "gemini_transcriber",
     "build_corpus",
     "build_splits",
     "generate_corpus",

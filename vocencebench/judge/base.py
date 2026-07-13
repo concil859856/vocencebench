@@ -29,6 +29,14 @@ class Backend(Protocol):
         ...
 
 
+def _unwrap_singleton_list(obj):
+    """A judge occasionally wraps its object in a one-element array ([{...}]); treat
+    that as equivalent to the bare object rather than a downstream 'missing key' error."""
+    if isinstance(obj, list) and len(obj) == 1 and isinstance(obj[0], dict):
+        return obj[0]
+    return obj
+
+
 def extract_json(raw: str) -> Optional[dict]:
     """Best-effort JSON object extraction from a model's text response."""
     if not raw:
@@ -38,14 +46,14 @@ def extract_json(raw: str) -> Optional[dict]:
     if s.startswith("```"):
         s = re.sub(r"^```[a-zA-Z]*\n?", "", s).rstrip("`").strip()
     try:
-        return json.loads(s)
+        return _unwrap_singleton_list(json.loads(s))
     except Exception:
         pass
     # Grab the outermost {...}.
     m = re.search(r"\{.*\}", s, re.DOTALL)
     if m:
         try:
-            return json.loads(m.group(0))
+            return _unwrap_singleton_list(json.loads(m.group(0)))
         except Exception:
             return None
     return None
