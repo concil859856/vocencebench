@@ -5,6 +5,7 @@
 **A reproducible, gaming-resistant benchmark for prompt-controllable text-to-speech**
 
 <p>
+  <a href="https://pypi.org/project/vocencebench/"><img alt="PyPI" src="https://img.shields.io/pypi/v/vocencebench?style=flat-square&color=2563eb"></a>
   <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-2563eb?style=flat-square">
   <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-2563eb?style=flat-square&logo=python&logoColor=white">
   <img alt="Judge: audio-LLM" src="https://img.shields.io/badge/judge-audio--LLM-7c3aed?style=flat-square">
