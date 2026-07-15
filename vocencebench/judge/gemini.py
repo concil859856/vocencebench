@@ -49,7 +49,9 @@ class GeminiBackend:
                     "The Gemini judge needs the 'google-genai' package: "
                     "pip install 'vocencebench[gemini]'"
                 ) from exc
-            self._client = genai.Client(api_key=self._api_key)
+            from vocencebench.transcribe import _gemini_timeout_ms
+            self._client = genai.Client(api_key=self._api_key,
+                                        http_options={"timeout": _gemini_timeout_ms()})
         return self._client
 
     def raw(self, parts: PromptParts, audio_a: bytes, audio_b: bytes,

@@ -160,7 +160,9 @@ def generate_corpus(
     (env ``GEMINI_API_KEY`` if not passed). ``progress(done, total)`` is called as items land.
     """
     from google import genai
-    client = genai.Client(api_key=api_key or os.environ.get("GEMINI_API_KEY"))
+    from vocencebench.transcribe import _gemini_timeout_ms
+    client = genai.Client(api_key=api_key or os.environ.get("GEMINI_API_KEY"),
+                          http_options={"timeout": _gemini_timeout_ms()})
     specs = sample_specs(n, seed)
 
     def _one(spec):

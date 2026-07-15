@@ -11,6 +11,15 @@ import os
 from typing import Callable, Optional
 
 
+def _gemini_timeout_ms() -> int:
+    """Per-request timeout for hosted Gemini calls, in milliseconds.
+
+    Large inline-audio uploads can stall forever on a bad connection; an untimed
+    client blocks its caller indefinitely. Override via VOCENCEBENCH_GEMINI_TIMEOUT_SEC.
+    """
+    return int(float(os.environ.get("VOCENCEBENCH_GEMINI_TIMEOUT_SEC", "90")) * 1000)
+
+
 def whisper_transcriber(model: str = "openai/whisper-large-v3",
                         device: Optional[int] = None) -> Callable[[bytes], str]:
     """Free, local, self-hosted -- but literal/phonetic: it transcribes spoken URLs,
@@ -58,7 +67,10 @@ def gemini_transcriber(model: str = "gemini-3.1-pro-preview",
 
     def _load():
         from google import genai
-        state["client"] = genai.Client(api_key=api_key or os.environ.get("GEMINI_API_KEY"))
+        state["client"] = genai.Client(
+            api_key=api_key or os.environ.get("GEMINI_API_KEY"),
+            http_options={"timeout": _gemini_timeout_ms()},
+        )
 
     def transcribe(wav: bytes) -> str:
         from google.genai import types
