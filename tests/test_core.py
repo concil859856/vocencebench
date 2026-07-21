@@ -100,6 +100,26 @@ def test_age_probe_tolerance_scoring():
     assert r.score == 0.0                                 # 16 yrs off = 2x tolerance -> 0
 
 
+def test_age_probe_categorical_requests():
+    from vocencebench.probes.age import AgeProbe, resolve_age_request
+    assert resolve_age_request("elderly person") == (72.0, 12.0)
+    assert resolve_age_request("Middle-Aged Adult") == (47.0, 10.0)
+    assert resolve_age_request("young adult speaker") == (25.0, 8.0)
+    assert resolve_age_request("child") == (10.0, 6.0)
+    assert resolve_age_request("62") == (62.0, None)
+    assert resolve_age_request("galactic senate") is None
+
+    p = AgeProbe(tolerance=8.0)
+    p._predict_age_years = lambda audio: 70.0
+    r = p.score(vb.Sample(id="x", text="hi", traits={"age": "elderly person"}), b"fake")
+    assert r.score == 1.0 and r.matched                   # 70 within 72 +/- 12
+    p._predict_age_years = lambda audio: 30.0
+    r = p.score(vb.Sample(id="x", text="hi", traits={"age": "elderly person"}), b"fake")
+    assert r.score == 0.0                                 # 42 yrs off -> 0
+    r = p.score(vb.Sample(id="x", text="hi", traits={"age": "galactic senate"}), b"fake")
+    assert r.score == 0.0 and r.detail["error"] == "unrecognized age request"
+
+
 def test_trait_vocabulary_counts():
     from vocencebench import traits
     assert len(traits.get("emotion").values) == 8

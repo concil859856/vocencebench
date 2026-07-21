@@ -1,19 +1,57 @@
 """Continuous age probe (regression).
 
-Age is a numeric trait: the requested value is a target age in years, and the probe
-estimates the speaker's apparent age from the audio (audEERING wav2vec2 age-gender
-model, which has a regression head). The desirability is 1.0 within +/- ``tolerance``
-years of the request and falls off linearly to 0 at 2x tolerance.
+Age is requested either as a target age in years or as a life-stage category
+("child", "young adult", "middle-aged adult", "elderly person" and close variants);
+categories resolve to a target-years/tolerance pair below. The probe estimates the
+speaker's apparent age from the audio (audEERING wav2vec2 age-gender model, which
+has a regression head). The desirability is 1.0 within +/- ``tolerance`` years of
+the request and falls off linearly to 0 at 2x tolerance.
 """
 
 from __future__ import annotations
 
 import io
-from typing import Optional
+from typing import Optional, Tuple
 
 from vocencebench.schema import ProbeResult, Sample
 
 DEFAULT_MODEL = "audeering/wav2vec2-large-robust-24-ft-age-gender"
+
+# Life-stage categories -> (target years, tolerance years). Keys are matched on the
+# lowercased request with the words "person"/"speaker"/"voice" stripped.
+AGE_CATEGORIES = {
+    "child": (10.0, 6.0),
+    "kid": (10.0, 6.0),
+    "teenager": (16.0, 4.0),
+    "teen": (16.0, 4.0),
+    "young adult": (25.0, 8.0),
+    "adult": (35.0, 12.0),
+    "middle-aged adult": (47.0, 10.0),
+    "middle aged adult": (47.0, 10.0),
+    "middle-aged": (47.0, 10.0),
+    "middle aged": (47.0, 10.0),
+    "elderly": (72.0, 12.0),
+    "old": (72.0, 12.0),
+    "senior": (72.0, 12.0),
+}
+
+
+def resolve_age_request(req: object) -> Optional[Tuple[float, Optional[float]]]:
+    """Return (target_years, tolerance_override) for a numeric or categorical
+    request, or None if the request is unrecognized. Numeric requests keep the
+    probe's default tolerance (override None)."""
+    try:
+        return float(req), None  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        pass
+    text = str(req).strip().lower()
+    for noise in ("person", "speaker", "voice"):
+        text = text.replace(noise, "")
+    text = " ".join(text.split())
+    if text in AGE_CATEGORIES:
+        years, tol = AGE_CATEGORIES[text]
+        return years, tol
+    return None
 
 
 def _build_model_class():
@@ -87,18 +125,23 @@ class AgeProbe:
         req = sample.traits.get(self.trait)
         if not req:
             return None
+        resolved = resolve_age_request(req)
+        if resolved is None:
+            return ProbeResult(trait=self.trait, requested=str(req), measured=None,
+                               score=0.0, detail={"error": "unrecognized age request"})
+        req_years, tol_override = resolved
+        tolerance = tol_override if tol_override is not None else self.tolerance
         try:
-            req_years = float(req)
             measured = self._predict_age_years(audio)
         except Exception as exc:
             return ProbeResult(trait=self.trait, requested=str(req), measured=None,
                                score=0.0, detail={"error": str(exc)[:160]})
         diff = abs(measured - req_years)
         # 1.0 within tolerance, linear to 0 at 2*tolerance.
-        score = max(0.0, 1.0 - max(0.0, diff - self.tolerance) / self.tolerance)
+        score = max(0.0, 1.0 - max(0.0, diff - tolerance) / tolerance)
         return ProbeResult(
             trait=self.trait, requested=str(req), measured=f"{measured:.0f}",
-            matched=(diff <= self.tolerance), score=round(score, 6),
+            matched=(diff <= tolerance), score=round(score, 6),
             detail={"measured_years": round(measured, 1), "requested_years": req_years,
-                    "tolerance": self.tolerance},
+                    "tolerance": tolerance},
         )
