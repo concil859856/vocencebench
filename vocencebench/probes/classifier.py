@@ -88,20 +88,34 @@ def GenderProbe(model_id: str = "alefiury/wav2vec2-large-xlsr-53-gender-recognit
                              {"female": "female", "male": "male"}, **kw)
 
 
-def EmotionProbe(model_id: str = "ehcalabres/wav2vec2-lg-xlsr-en-speech-emotion-recognition",
-                 **kw) -> HFClassifierProbe:
-    # RAVDESS 8-class labels map straight through.
+def EmotionProbe(model_id: str = "superb/hubert-large-superb-er", **kw) -> HFClassifierProbe:
+    """Four-class emotion probe (angry/happy/sad/neutral).
+
+    Model choice is measured, not assumed: benchmarked against labeled emotional
+    speech, this checkpoint reads 46% on a balanced four-way set (25% chance),
+    while several widely-used alternatives sat at chance with ~0.13 confidence —
+    i.e. they emit a near-uniform distribution and score nothing. Emotions outside
+    these four classes have no reliable open classifier and are therefore not part
+    of the scored trait vocabulary.
+    """
     return HFClassifierProbe("emotion", model_id, {
-        "neutral": "neutral", "calm": "calm", "happy": "happy", "sad": "sad",
-        "angry": "angry", "fear": "fearful", "disgust": "disgust", "surprise": "surprised",
+        "neu": "neutral", "hap": "happy", "sad": "sad", "ang": "angry",
     }, **kw)
 
 
 def AccentProbe(model_id: str = "dima806/english_accents_classification", **kw) -> HFClassifierProbe:
+    """Accent probe over American / British / Indian.
+
+    ``canada`` maps to American: the classifier splits North American English into
+    us/canada and assigns most American speech to the canada class, so merging them
+    lifts American recall from 24% to 92% on labeled speech. Australian is absent
+    from the mapping on purpose — the model never predicts it for genuinely
+    Australian speech (0/40), so it cannot be scored fairly.
+    """
     return HFClassifierProbe("accent", model_id, {
-        "us": "American", "america": "American", "england": "British", "british": "British",
-        "australia": "Australian", "indian": "Indian", "india": "Indian",
-        "canada": "Canadian", "canadian": "Canadian",
+        "us": "American", "america": "American", "canada": "American", "canadian": "American",
+        "england": "British", "british": "British",
+        "indian": "Indian", "india": "Indian",
     }, **kw)
 
 

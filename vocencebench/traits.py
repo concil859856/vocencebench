@@ -74,12 +74,15 @@ register(Trait(
 ))
 register(Trait(
     name="emotion", kind="objective",
-    values=("neutral", "calm", "happy", "sad", "angry", "fearful", "disgust", "surprised"),
+    # Only the four classes an open probe can actually distinguish (see EmotionProbe).
+    values=("neutral", "happy", "sad", "angry"),
     dimension="whether the expressed emotion matches the requested emotion",
 ))
 register(Trait(
     name="accent", kind="objective",
-    values=("American", "British", "Australian", "Indian", "Canadian"),
+    # Australian/Canadian are omitted: no open classifier separates them reliably
+    # (Australian is never predicted; Canadian is merged into American).
+    values=("American", "British", "Indian"),
     dimension="whether the accent matches the requested accent",
 ))
 register(Trait(

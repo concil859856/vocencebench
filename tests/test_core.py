@@ -122,8 +122,9 @@ def test_age_probe_categorical_requests():
 
 def test_trait_vocabulary_counts():
     from vocencebench import traits
-    assert len(traits.get("emotion").values) == 8
-    assert len(traits.get("accent").values) == 5
+    # Vocabularies are limited to values a probe can actually score.
+    assert traits.get("emotion").values == ("neutral", "happy", "sad", "angry")
+    assert traits.get("accent").values == ("American", "British", "Indian")
     assert len(traits.get("tone").values) == 8
     assert traits.get("age").numeric and traits.get("age").tolerance == 8.0
     assert "environment" not in traits.names()
@@ -322,3 +323,16 @@ def test_evaluate_end_to_end():
     assert rep.metrics["naturalness_win_rate"] == 1.0  # model louder
     assert "tone" in rep.metrics["trait_csr"]
     assert rep.metrics["errors"] == 0
+
+
+def test_probe_label_maps_cover_their_vocabulary():
+    """Every scorable trait value must be reachable from some model label, or the
+    probe can never award credit for it."""
+    from vocencebench import traits
+    from vocencebench.probes.classifier import EmotionProbe, AccentProbe, GenderProbe
+
+    for probe, trait in ((EmotionProbe(), "emotion"), (AccentProbe(), "accent"),
+                         (GenderProbe(), "gender")):
+        reachable = set(probe.label_map.values())
+        missing = set(traits.get(trait).values) - reachable
+        assert not missing, f"{trait}: unreachable values {missing}"
